@@ -44,6 +44,10 @@ The APV codec standard has the following features:
   For ARM
   - gcc-aarch64-linux-gnu
   - binutils-aarch64-linux-gnu
+ 
+  For Windows (crosscompile)
+  - mingw-w64
+  - mingw-w64-tools
 
 - Build Instructions PC
   ```
@@ -57,9 +61,15 @@ The APV codec standard has the following features:
   cmake --build build-arm
   ```
 
+- Build Instructions Windows (Crosscompile)
+  ```
+  cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=windows_x86_64_toolchain.cmake
+  cmake --build build-windows
+  ```
+
 - Output Location
-  - Executable applications can be found under build/bin/ or build-arm/bin/
-  - Library files can be found under build/lib/ or build-arm/lib/
+  - Executable applications can be found under build*/bin/
+  - Library files can be found under build*/lib/
 
 ## How to use
 ### Encoder
