@@ -519,6 +519,8 @@ static int oapv_quant_avx(s16* coef, u8 qp, int q_matrix[OAPV_BLK_D], int log2_w
     shift = QUANT_SHIFT + tr_shift + (qp / 6);
     offset = (s64)deadzone_offset << (shift - 9);
     __m256i offset_vector = _mm256_set1_epi64x(offset);
+    __m256i reg_minval_int16 = _mm256_set1_epi32(-32768);
+    __m256i reg_maxval_int16 = _mm256_set1_epi32(32767);
 
     int pixels = (1 << (log2_w + log2_h));
     int i;
@@ -533,7 +535,7 @@ static int oapv_quant_avx(s16* coef, u8 qp, int q_matrix[OAPV_BLK_D], int log2_w
         0, 1, 4, 5, 8, 9, 12, 13,
         -128, -128, -128, -128, -128, -128, -128, -128,
         -128, -128, -128, -128, -128, -128, -128, -128);
-    
+
     for (i = 0; i < pixels; i += 8)
     {
         // Load first row
@@ -541,8 +543,8 @@ static int oapv_quant_avx(s16* coef, u8 qp, int q_matrix[OAPV_BLK_D], int log2_w
         __m128i coef_row = _mm_lddqu_si128((__m128i*)(coef + i));
 
         // Extract sign
-        __m256i coef_row_cast = _mm256_castsi128_si256(coef_row);
-        __m256i sign_mask = _mm256_srai_epi16(coef_row_cast, 15);
+        __m128i sign_mask = _mm_srai_epi16(coef_row, 15);
+        __m256i sign_mask_ext = _mm256_cvtepi16_epi32(sign_mask);
 
         // Convert to 32 bits and take abs()
         __m256i coef_row_ext = _mm256_cvtepi16_epi32(coef_row);
@@ -557,25 +559,23 @@ static int oapv_quant_avx(s16* coef, u8 qp, int q_matrix[OAPV_BLK_D], int log2_w
         // First level of combination
         lev2_low = _mm256_slli_epi64(lev2_low, 32);
         __m256i combined = _mm256_or_si256(lev2_low, lev2_high);
+        __m256i levx = _mm256_permutevar8x32_epi32(combined, shuffle0);
+
+        // Apply sign and clipping
+        levx = _mm256_sub_epi32(_mm256_xor_si256(levx, sign_mask_ext), sign_mask_ext);
+        levx = _mm256_max_epi32(levx, reg_minval_int16);
+        levx = _mm256_min_epi32(levx, reg_maxval_int16);
 
         // Second level of combination
-        __m256i levx = _mm256_permutevar8x32_epi32(combined, shuffle0);
-        __m128i levx_low = _mm256_castsi256_si128(levx);
-        __m256i levx_low_ext = _mm256_castsi128_si256(levx_low);
-        levx_low_ext = _mm256_shuffle_epi8(levx_low_ext, shuffle1);
+        __m256i levx_low_sh = _mm256_shuffle_epi8(levx, shuffle1);
         __m128i levx_high = _mm256_extracti128_si256(levx, 1);
         __m256i levx_high_ext = _mm256_castsi128_si256(levx_high);
-        levx_high_ext = _mm256_shuffle_epi8(levx_high_ext, shuffle2);
-        levx = _mm256_or_si256(levx_high_ext, levx_low_ext);
+        __m256i levx_high_sh = _mm256_shuffle_epi8(levx_high_ext, shuffle2);
+        levx = _mm256_or_si256(levx_high_sh, levx_low_sh);
 
-        // Apply sign
-        levx = _mm256_sub_epi16(_mm256_xor_si256(levx, sign_mask), sign_mask);
-
-        // Clip and store in coef
+        // store in coef
         __m128i lev4 = _mm256_castsi256_si128(levx);
-        __m128i lev5 = _mm_max_epi16(lev4, _mm_set1_epi16(-32768));
-        __m128i lev6 = _mm_min_epi16(lev5, _mm_set1_epi16(32767));
-        _mm_storeu_si128((__m128i*)(coef + i), lev6);
+        _mm_storeu_si128((__m128i*)(coef + i), lev4);
     }
     return OAPV_OK;
 }

@@ -499,9 +499,9 @@ static int update_param(args_var_t *vars, oapve_param_t *param)
     param->csp = vars->input_csp;
 
     /* update level idc */
-    double tmp_level = 0;
-    sscanf(vars->level, "%lf", &tmp_level);
-    param->level_idc = tmp_level * 30;
+    float tmp_level = 0;
+    sscanf(vars->level, "%f", &tmp_level);
+    param->level_idc = (int)((tmp_level * 30.0) + 0.5);
     /* update band idc */
     param->band_idc = vars->band;
 

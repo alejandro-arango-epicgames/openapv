@@ -97,6 +97,11 @@ void oapv_trans(oapve_ctx_t *ctx, s16 *coef, int log2_w, int log2_h, int bit_dep
 
 static int oapv_quant(s16 *coef, u8 qp, int q_matrix[OAPV_BLK_D], int log2_w, int log2_h, int bit_depth, int deadzone_offset)
 {
+    // coef is the output of the transform, the bit range is 16
+    // q_matrix has the value of q_scale * 16 / q_matrix, the bit range is 19
+    // (precision of q_scale is 15, and the range of q_mtrix is 1~255)
+    // lev is the product of abs(coef) and q_matrix, the bit range is 35
+
     s64 lev;
     s32 offset;
     int sign;
