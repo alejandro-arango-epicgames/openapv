@@ -49,21 +49,21 @@ The APV codec standard has the following features:
   - mingw-w64
   - mingw-w64-tools
 
-- Build Instructions PC
+- Build Instructions PC (Linux)
   ```
   cmake -DCMAKE_BUILD_TYPE=Release -S . -B build
   cmake --build build
   ```
 
-- Build Instructions ARM
+- Build Instructions ARM (Crosscompile)
   ```
-  cmake -DCMAKE_BUILD_TYPE=Release -S . -B build-arm -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DARM=TRUE -DCMAKE_SYSTEM_PROCESSOR=aarch64
+  cmake -S . -B build-arm -DCMAKE_TOOLCHAIN_FILE=aarch64_toolchain.cmake -DCMAKE_BUILD_TYPE=Release 
   cmake --build build-arm
   ```
 
 - Build Instructions Windows (Crosscompile)
   ```
-  cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=windows_x86_64_toolchain.cmake
+  cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=windows_x86_64_toolchain.cmake -DCMAKE_BUILD_TYPE=Release 
   cmake --build build-windows
   ```
 

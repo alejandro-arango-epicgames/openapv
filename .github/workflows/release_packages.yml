@@ -57,7 +57,7 @@ jobs:
 
       - name: Build ARM
         run: |
-          cmake -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}} -B ${{github.workspace}}/build-arm -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DARM=TRUE -DCMAKE_SYSTEM_PROCESSOR=aarch64
+          cmake -S ${{github.workspace}} -B ${{github.workspace}}/build-arm -DCMAKE_TOOLCHAIN_FILE=${{github.workspace}}/arm64_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
           cmake --build ${{github.workspace}}/build-arm
           cd ${{github.workspace}}/build-arm
           cpack -C Release
@@ -67,8 +67,8 @@ jobs:
         with:
           name: openapv-arm-${{github.event.release.tag_name}}
           path: |
-            ${{ github.workspace }}/build/*.deb
-            ${{ github.workspace }}/build/*.md5
+            ${{ github.workspace }}/build-arm/*.deb
+            ${{ github.workspace }}/build-arm/*.md5
           retention-days: 7
 
       - name: Upload ARM assets to GitHub Release
@@ -76,7 +76,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          file: "build/*.deb; build/*.md5"
+          file: "build-arm/*.deb; build-arm/*.md5"
           update_latest_release: true
           draft: false
           overwrite: true
