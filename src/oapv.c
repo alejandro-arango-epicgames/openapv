@@ -2065,20 +2065,22 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
 
     DUMP_SET(0);
 
+    /* 'au' address contains series of PBU */
     do {
         oapv_bs_t bs;
-        u32       pbu_size = 0;
+        u32 pbu_size = 0;
         u32 remain = au_size - cur_read_size;
         oapv_assert_rv((remain >= 8), OAPV_ERR_MALFORMED_BITSTREAM);
         oapv_bsr_init(&bs, (u8 *)au + cur_read_size, remain, NULL);
 
-        ret = oapvd_vlc_pbu_size(&bs, &pbu_size); // 4 byte
+        ret = oapvd_vlc_pbu_size(&bs, &pbu_size); // read pbu_size (4 byte)
         oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
-        oapv_assert_rv((pbu_size + 4) <= bs.size, OAPV_ERR_MALFORMED_BITSTREAM);
+        remain -= 4; // pbu_size syntax
+        oapv_assert_rv(pbu_size <= remain, OAPV_ERR_MALFORMED_BITSTREAM);
 
         /* pbu header */
         oapv_pbuh_t pbuh;
-        ret = oapvd_vlc_pbu_header(&bs, &pbuh); // 4 byte
+        ret = oapvd_vlc_pbu_header(&bs, &pbuh); // read pbu_header() (4 byte)
         oapv_assert_rv(OAPV_SUCCEEDED(ret), OAPV_ERR_MALFORMED_BITSTREAM);
         if(pbuh.pbu_type == OAPV_PBU_TYPE_AU_INFO) {
             // parse access_unit_info in PBU
@@ -2109,7 +2111,7 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
             frm_count++;
         }
         aui->num_frms = frm_count;
-        cur_read_size += pbu_size + 4;
+        cur_read_size += pbu_size + 4; /* 4byte is for pbu_size syntax itself */
     } while(cur_read_size < au_size);
     DUMP_SET(1);
     return OAPV_OK;
