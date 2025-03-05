@@ -1959,10 +1959,10 @@ int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid
         oapv_bsr_init(&ctx->bs, (u8 *)bitb->addr + cur_read_size, remain, NULL);
         bs = &ctx->bs;
 
-        ret = oapvd_vlc_pbu_size(bs, &pbu_size); // 4byte
+        ret = oapvd_vlc_pbu_size(bs, &pbu_size); // read pbu_size (4 byte)
         oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
-        oapv_assert_gv((pbu_size + 4) <= bs->size, ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
-
+        remain -= 4; // size of pbu_size syntax
+        oapv_assert_gv(pbu_size <= remain, ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
 
         ret = oapvd_vlc_pbu_header(bs, &pbuh);
         oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
@@ -2075,7 +2075,7 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
 
         ret = oapvd_vlc_pbu_size(&bs, &pbu_size); // read pbu_size (4 byte)
         oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
-        remain -= 4; // pbu_size syntax
+        remain -= 4; // size of pbu_size syntax
         oapv_assert_rv(pbu_size <= remain, OAPV_ERR_MALFORMED_BITSTREAM);
 
         /* pbu header */
