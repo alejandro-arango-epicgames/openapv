@@ -1670,6 +1670,9 @@ static int dec_tile_comp(oapvd_tile_t *tile, oapvd_ctx_t *ctx, oapvd_core_t *cor
 
     /* byte align */
     oapv_bsr_align8(bs);
+    /* check actual read size of 'tile()' is equal or smaller than 'tile_data_size' in tile header */
+    oapv_assert_rv(BSR_GET_READ_BYTE(bs) <= tile->th.tile_data_size[c], OAPV_ERR_MALFORMED_BITSTREAM);
+
     return OAPV_OK;
 }
 
@@ -1677,11 +1680,12 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
 {
     int          ret, midx, x, y, c;
     oapvd_ctx_t *ctx = core->ctx;
-    oapv_bs_t    bs;
+    oapv_bs_t    bs; // bs for 'tile()' syntax
 
     oapv_bsr_init(&bs, tile->bs_beg + OAPV_TILE_SIZE_LEN, tile->data_size, NULL);
     ret = oapvd_vlc_tile_header(&bs, ctx, &tile->th);
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
+
     for(c = 0; c < ctx->num_comp; c++) {
         core->qp[c] = tile->th.tile_qp[c];
         int dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
@@ -1702,6 +1706,9 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
     for(c = 0; c < ctx->num_comp; c++) {
         int  tc, s_dst;
         s16 *dst;
+        oapv_bs_t bsc; // bs for 'tile_data()' syntax
+
+        oapv_bsr_init(&bsc, BSR_GET_CUR(&bs), tile->th.tile_data_size[c], NULL);
 
         if(OAPV_CS_GET_FORMAT(ctx->imgb->cs) == OAPV_CF_PLANAR2) {
             tc = c > 0 ? 1 : 0;
@@ -1714,8 +1721,11 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
             s_dst = ctx->imgb->s[c];
         }
 
-        ret = dec_tile_comp(tile, ctx, core, &bs, c, s_dst, dst);
+        ret = dec_tile_comp(tile, ctx, core, &bsc, c, s_dst, dst);
         oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
+
+        // move bs buffer to next 'tile_data()' component
+        BSR_MOVE_BYTE_ALIGN(&bs, tile->th.tile_data_size[c]);
     }
 
     oapvd_vlc_tile_dummy_data(&bs);
