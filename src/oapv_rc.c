@@ -101,7 +101,7 @@ int oapve_rc_get_tile_cost_thread(oapve_ctx_t* ctx, u64* sum)
     }
 
     oapv_tpool_t* tpool = ctx->tpool;
-    int parallel_task = (ctx->cdesc.threads > ctx->num_tiles) ? ctx->num_tiles : ctx->cdesc.threads;
+    int parallel_task = (ctx->threads > ctx->num_tiles) ? ctx->num_tiles : ctx->threads;
 
     // run new threads
     int tidx = 0;

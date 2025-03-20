@@ -296,8 +296,8 @@ static void enc_minus_mid_val(s16 *coef, int w_blk, int h_blk, int bit_depth)
 static int enc_set_tile_info(oapve_tile_t *ti, int w_pel, int h_pel, int tile_w,
                              int tile_h, int *num_tile_cols, int *num_tile_rows, int *num_tiles)
 {
-    (*num_tile_cols) = (w_pel + (tile_w - 1)) / tile_w;
-    (*num_tile_rows) = (h_pel + (tile_h - 1)) / tile_h;
+    (*num_tile_cols) = oapv_div_round_up(w_pel, tile_w);
+    (*num_tile_rows) = oapv_div_round_up(h_pel, tile_h);
     (*num_tiles) = (*num_tile_cols) * (*num_tile_rows);
 
     for(int i = 0; i < (*num_tiles); i++) {
@@ -638,6 +638,39 @@ static double enc_block_rdo_placebo(oapve_ctx_t *ctx, oapve_core_t *core, int lo
     return best_cost;
 }
 
+static int enc_update_param(oapve_ctx_t* ctx, oapve_param_t* param)
+{
+    /* set various value */
+    ctx->w = oapv_div_round_up(param->w, OAPV_MB_W) * OAPV_MB_W;
+    ctx->h = oapv_div_round_up(param->h, OAPV_MB_H) * OAPV_MB_H;
+
+    /* find correct tile width and height */
+    int tile_w, tile_h;
+
+    oapv_assert_rv(param->tile_w >= OAPV_MIN_TILE_W && param->tile_h >= OAPV_MIN_TILE_H, OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv((param->tile_w & (OAPV_MB_W - 1)) == 0 && (param->tile_h & (OAPV_MB_H - 1)) == 0, OAPV_ERR_INVALID_ARGUMENT);
+
+    if (oapv_div_round_up(ctx->w, param->tile_w) > OAPV_MAX_TILE_COLS) {
+        tile_w = oapv_div_round_up(ctx->w, OAPV_MAX_TILE_COLS);
+        tile_w = oapv_div_round_up(tile_w, OAPV_MB_W) * OAPV_MB_W; // align to MB width
+    }
+    else {
+        tile_w = param->tile_w;
+    }
+    param->tile_w = tile_w;
+
+    if (oapv_div_round_up(ctx->h, param->tile_h) > OAPV_MAX_TILE_ROWS) {
+        tile_h = oapv_div_round_up(ctx->h, OAPV_MAX_TILE_ROWS);
+        tile_h = oapv_div_round_up(tile_h, OAPV_MB_H) * OAPV_MB_H; // align to MB height
+    }
+    else {
+        tile_h = param->tile_h;
+    }
+    param->tile_h = tile_h;
+
+    return OAPV_OK;
+}
+
 static int enc_read_param(oapve_ctx_t *ctx, oapve_param_t *param)
 {
     /* check input parameters */
@@ -671,12 +704,10 @@ static int enc_read_param(oapve_ctx_t *ctx, oapve_param_t *param)
     ctx->log2_block = OAPV_LOG2_BLK;
 
     /* set various value */
-    ctx->w = ((param->w + (OAPV_MB_W - 1)) >> OAPV_LOG2_MB_W) << OAPV_LOG2_MB_W;
-    ctx->h = ((param->h + (OAPV_MB_H - 1)) >> OAPV_LOG2_MB_H) << OAPV_LOG2_MB_H;
+    ctx->w = oapv_div_round_up(param->w, OAPV_MB_W) * OAPV_MB_W;
+    ctx->h = oapv_div_round_up(param->h, OAPV_MB_H) * OAPV_MB_H;
 
-    int tile_w = param->tile_w_mb * OAPV_MB_W;
-    int tile_h = param->tile_h_mb * OAPV_MB_H;
-    enc_set_tile_info(ctx->tile, ctx->w, ctx->h, tile_w, tile_h, &ctx->num_tile_cols, &ctx->num_tile_rows, &ctx->num_tiles);
+    enc_set_tile_info(ctx->tile, ctx->w, ctx->h, ctx->param->tile_w, ctx->param->tile_h, &ctx->num_tile_cols, &ctx->num_tile_rows, &ctx->num_tiles);
 
     return OAPV_OK;
 }
@@ -684,11 +715,11 @@ static int enc_read_param(oapve_ctx_t *ctx, oapve_param_t *param)
 static void enc_flush(oapve_ctx_t *ctx)
 {
     // Release thread pool controller and created threads
-    if(ctx->cdesc.threads >= 1) {
+    if(ctx->threads >= 1) {
         if(ctx->tpool) {
             // thread controller instance is present
             // terminate the created thread
-            for(int i = 0; i < ctx->cdesc.threads; i++) {
+            for(int i = 0; i < ctx->threads; i++) {
                 if(ctx->thread_id[i]) {
                     // valid thread instance
                     ctx->tpool->release(&ctx->thread_id[i]);
@@ -702,7 +733,7 @@ static void enc_flush(oapve_ctx_t *ctx)
     }
 
     oapv_tpool_sync_obj_delete(&ctx->sync_obj);
-    for(int i = 0; i < ctx->cdesc.threads; i++) {
+    for(int i = 0; i < ctx->threads; i++) {
         enc_core_free(ctx->core[i]);
         ctx->core[i] = NULL;
     }
@@ -716,7 +747,21 @@ static int enc_ready(oapve_ctx_t *ctx)
     int           ret = OAPV_OK;
     oapv_assert(ctx->core[0] == NULL);
 
-    for(int i = 0; i < ctx->cdesc.threads; i++) {
+    int min_num_tiles = OAPV_MAX_TILES;
+    for (int i = 0; i < ctx->cdesc.max_num_frms; i++) {
+        enc_update_param(ctx, &ctx->cdesc.param[i]);
+        int num_tiles = oapv_div_round_up(ctx->w, ctx->cdesc.param[i].tile_w) * oapv_div_round_up(ctx->h, ctx->cdesc.param[i].tile_h);
+        min_num_tiles = oapv_min(min_num_tiles, num_tiles);
+    }
+
+    if(ctx->cdesc.threads == OAPVE_CDESC_THREADS_AUTO) {
+        ctx->threads = oapv_min(OAPV_MAX_THREADS, oapv_min(oapv_get_num_cpu_cores(), min_num_tiles));
+    }
+    else {
+        ctx->threads = ctx->cdesc.threads;
+    }
+
+    for(int i = 0; i < ctx->threads; i++) {
         core = enc_core_alloc();
         oapv_assert_gv(core != NULL, ret, OAPV_ERR_OUT_OF_MEMORY, ERR);
         ctx->core[i] = core;
@@ -731,10 +776,10 @@ static int enc_ready(oapve_ctx_t *ctx)
     ctx->sync_obj = oapv_tpool_sync_obj_create();
     oapv_assert_gv(ctx->sync_obj != NULL, ret, OAPV_ERR_UNKNOWN, ERR);
 
-    if(ctx->cdesc.threads >= 1) {
+    if(ctx->threads >= 1) {
         ctx->tpool = oapv_malloc(sizeof(oapv_tpool_t));
-        oapv_tpool_init(ctx->tpool, ctx->cdesc.threads);
-        for(int i = 0; i < ctx->cdesc.threads; i++) {
+        oapv_tpool_init(ctx->tpool, ctx->threads);
+        for(int i = 0; i < ctx->threads; i++) {
             ctx->thread_id[i] = ctx->tpool->create(ctx->tpool, i);
             oapv_assert_gv(ctx->thread_id[i] != NULL, ret, OAPV_ERR_UNKNOWN, ERR);
         }
@@ -1092,7 +1137,7 @@ static int enc_frm_prepare(oapve_ctx_t *ctx, oapv_imgb_t *imgb_i, oapv_imgb_t *i
         ctx->tile[i].bs_buf_max = buf_size;
     }
 
-    for(int i = 0; i < ctx->cdesc.threads; i++) {
+    for(int i = 0; i < ctx->threads; i++) {
         ctx->core[i]->ctx = ctx;
         ctx->core[i]->thread_idx = i;
     }
@@ -1146,7 +1191,7 @@ static int enc_frame(oapve_ctx_t *ctx)
 
     oapv_tpool_t *tpool = ctx->tpool;
     int           res, tidx = 0, thread_num1 = 0;
-    int           parallel_task = (ctx->cdesc.threads > ctx->num_tiles) ? ctx->num_tiles : ctx->cdesc.threads;
+    int           parallel_task = (ctx->threads > ctx->num_tiles) ? ctx->num_tiles : ctx->threads;
 
     /* encode tiles ************************************/
     for(tidx = 0; tidx < (parallel_task - 1); tidx++) {
@@ -1307,7 +1352,7 @@ int oapve_encode(oapve_t eid, oapv_frms_t *ifrms, oapvm_t mid, oapv_bitb_t *bitb
         /* set default value for encoding parameter */
         ctx->param = &ctx->cdesc.param[i];
         ret = enc_read_param(ctx, ctx->param);
-        oapv_assert_rv(ret == OAPV_OK, OAPV_ERR);
+        oapv_assert_rv(ret == OAPV_OK, ret);
 
         oapv_assert_rv(ctx->param->profile_idc == OAPV_PROFILE_422_10, OAPV_ERR_UNSUPPORTED);
 
@@ -1449,39 +1494,6 @@ int oapve_config(oapve_t eid, int cfg, void *buf, int *size)
     default:
         oapv_trace("unknown config value (%d)\n", cfg);
         oapv_assert_rv(0, OAPV_ERR_UNSUPPORTED);
-    }
-
-    return OAPV_OK;
-}
-
-int oapve_param_default(oapve_param_t *param)
-{
-    oapv_mset(param, 0, sizeof(oapve_param_t));
-    param->preset = OAPV_PRESET_DEFAULT;
-
-    param->qp_offset_c1 = 0;
-    param->qp_offset_c2 = 0;
-    param->qp_offset_c3 = 0;
-
-    param->tile_w_mb = 16;
-    param->tile_h_mb = 16;
-
-    param->profile_idc = OAPV_PROFILE_422_10;
-    param->level_idc = (int)((4.1 * 30.0) + 0.5);
-    param->band_idc = 2;
-
-    param->use_q_matrix = 0;
-
-    param->color_description_present_flag = 0;
-    param->color_primaries = 2; // unspecified color primaries
-    param->transfer_characteristics = 2; // unspecified transfer characteristics
-    param->matrix_coefficients = 2; // unspecified matrix coefficients
-    param->full_range_flag = 0; // limited range
-
-    for(int c = 0; c < OAPV_MAX_CC; c++) {
-        for(int i = 0; i < OAPV_BLK_D; i++) {
-            param->q_matrix[c][i] = 16;
-        }
     }
 
     return OAPV_OK;

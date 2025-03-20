@@ -199,4 +199,9 @@ void oapv_trace_line(char *pre);
 #define ALIGNED_32(var)  DECLARE_ALIGNED(var, 32)
 #define ALIGNED_128(var) DECLARE_ALIGNED(var, 128)
 
+
+/* CPU information */
+int oapv_get_num_cpu_cores(void);
+
 #endif /* _OAPV_PORT_H_ */
+

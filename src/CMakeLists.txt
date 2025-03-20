@@ -105,7 +105,11 @@ elseif( UNIX OR MINGW )
 
   set_target_properties(${LIB_NAME_BASE}_dynamic PROPERTIES FOLDER lib
                                                             LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-  target_compile_definitions( ${LIB_NAME_BASE} PUBLIC ANY LINUX )
+  if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    target_compile_definitions( ${LIB_NAME_BASE} PUBLIC ANY MACOS )
+  else()
+    target_compile_definitions( ${LIB_NAME_BASE} PUBLIC ANY LINUX )
+  endif()
   target_link_libraries(${LIB_NAME_BASE} m)
 endif()
 

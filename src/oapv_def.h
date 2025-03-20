@@ -271,6 +271,7 @@ struct oapve_ctx {
     oapve_param_t            *param;
     oapv_fh_t                 fh;
     oapve_tile_t              tile[OAPV_MAX_TILES];
+    int                       num_tiles_frms[OAPV_MAX_NUM_FRAMES];
     int                       num_tiles;
     int                       num_tile_cols;
     int                       num_tile_rows;
@@ -308,6 +309,7 @@ struct oapve_ctx {
     int                       use_frm_hash;
     oapve_rc_param_t          rc_param;
 
+    int                       threads; // num of thread for encoding
     /* platform specific data, if needed */
     void                     *pf;
 };
@@ -410,6 +412,7 @@ struct oapvd_ctx {
 #include "oapv_tbl.h"
 #include "oapv_rc.h"
 #include "oapv_sad.h"
+#include "oapv_param.h"
 
 #if X86_SSE
 #include "sse/oapv_sad_sse.h"

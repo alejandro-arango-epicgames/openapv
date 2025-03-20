@@ -38,6 +38,10 @@
 #define oapv_min(a, b)               (((a) < (b)) ? (a) : (b))
 #define oapv_median(x, y, z)         ((((y) < (z)) ^ ((z) < (x))) ? (((x) < (y)) ^ ((z) < (x))) ? (y) : (x) : (z))
 
+#define oapv_div_round_up(n, d)      ((int)(((n) + (d) - 1) / (d)))
+#define oapv_div_round_closest(n, d) ((int)(((n) + (d)/2)/(d)))
+
+
 #define oapv_abs(a)                  (((a) > (0)) ? (a) : (-(a)))
 #define oapv_abs64(a)                (((a) ^ ((a) >> 63)) - ((a) >> 63)) // only for 64bit variable
 #define oapv_abs32(a)                (((a) ^ ((a) >> 31)) - ((a) >> 31)) // only for 32bit variable

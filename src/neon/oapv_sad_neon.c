@@ -182,7 +182,6 @@ static s64 ssd_16b_neon_8x8(int w, int h, void *src1, void *src2, int s_src1, in
     s64 ssd = 0;
     s16* s1 = (s16*) src1;
     s16* s2 = (s16*) src2;
-    s16 i;
     int16x8_t s1_vector, s2_vector;
     int32x4_t diff1, diff2;
     int32x2_t diff1_low, diff2_low;
@@ -480,7 +479,6 @@ int oapv_dc_removed_had8x8_neon(pel* org, int s_org)
     int16x8_t pred4_8x16b, pred5_8x16b, pred6_8x16b, pred7_8x16b;
     int16x8_t out0_8x16b, out1_8x16b, out2_8x16b, out3_8x16b;
     int16x8_t out4_8x16b, out5_8x16b, out6_8x16b, out7_8x16b;
-    int16x8x2_t out0_8x16bx2, out1_8x16bx2, out2_8x16bx2, out3_8x16bx2;
 
     src0_8x16b = (vld1q_s16(&org[0]));
     org = org + s_org;

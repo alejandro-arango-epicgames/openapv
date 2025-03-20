@@ -279,8 +279,8 @@ void oapve_set_frame_header(oapve_ctx_t *ctx, oapv_fh_t *fh)
     fh->fi.frame_height = param->h;
     fh->fi.chroma_format_idc = ctx->cfi;
     fh->fi.bit_depth = ctx->bit_depth;
-    fh->tile_width_in_mbs = param->tile_w_mb;
-    fh->tile_height_in_mbs = param->tile_h_mb;
+    fh->tile_width_in_mbs = param->tile_w / OAPV_MB_W;
+    fh->tile_height_in_mbs = param->tile_h / OAPV_MB_H;
 
     fh->color_description_present_flag = param->color_description_present_flag;
     fh->color_primaries = param->color_primaries;

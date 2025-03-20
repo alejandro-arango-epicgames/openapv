@@ -60,11 +60,13 @@ extern "C" {
 #define OAPV_BLK_D                      (OAPV_BLK_W * OAPV_BLK_H)
 
 /* size of tile */
-#define OAPV_MAX_TILE_ROWS              (20)
-#define OAPV_MAX_TILE_COLS              (20)
+#define OAPV_MAX_TILE_ROWS              (20) // max number of tiles in row
+#define OAPV_MAX_TILE_COLS              (20) // max number of tiles in column
 #define OAPV_MAX_TILES                  (OAPV_MAX_TILE_ROWS * OAPV_MAX_TILE_COLS)
 #define OAPV_MIN_TILE_W_MB              (16)
 #define OAPV_MIN_TILE_H_MB              (8)
+#define OAPV_MIN_TILE_W                 (OAPV_MIN_TILE_W_MB << OAPV_LOG2_MB_W)
+#define OAPV_MIN_TILE_H                 (OAPV_MIN_TILE_H_MB << OAPV_LOG2_MB_H)
 
 /* maximum number of thread */
 #define OAPV_MAX_THREADS                (32)
@@ -378,15 +380,102 @@ struct oapv_au_info {
 };
 
 /*****************************************************************************
+ * constant string values for oapve_param_parse() and command-line options
+ *****************************************************************************/
+typedef struct oapv_dict_str_int oapv_dict_str_int_t; // dictionary type
+struct oapv_dict_str_int {
+    const char * key;
+    const int    val;
+};
+
+static const oapv_dict_str_int_t oapv_param_opts_profile[] = {
+    {"422-10",  OAPV_PROFILE_422_10},
+    {"", 0} // termination
+};
+
+static const oapv_dict_str_int_t oapv_param_opts_preset[] = {
+    {"fastest", OAPV_PRESET_FASTEST},
+    {"fast",    OAPV_PRESET_FAST},
+    {"medium",  OAPV_PRESET_MEDIUM},
+    {"slow",    OAPV_PRESET_SLOW},
+    {"placebo", OAPV_PRESET_PLACEBO},
+    {"", 0} // termination
+};
+
+static const oapv_dict_str_int_t oapv_param_opts_color_range[] = {
+    {"limited", 0},
+    {"full",    1},
+    {"", 0} // termination
+};
+
+static const oapv_dict_str_int_t oapv_param_opts_color_primaries[] = {
+    {"reserved",     0},
+    {"bt709",        1},
+    {"unspecified",  2},
+    {"reserved",     3},
+    {"bt470m",       4},
+    {"bt470bg",      5},
+    {"smpte170m",    6},
+    {"smpte240m",    7},
+    {"film",         8},
+    {"bt2020",       9},
+    {"smpte428",    10},
+    {"smpte431",    11},
+    {"smpte432",    12},
+    {"", 0} // termination
+};
+
+static const oapv_dict_str_int_t oapv_param_opts_color_transfer[] = {
+    {"reserved",        0},
+    {"bt709",           1},
+    {"unspecified",     2},
+    {"reserved",        3},
+    {"bt470m",          4},
+    {"bt470bg",         5},
+    {"smpte170m",       6},
+    {"smpte240m",       7},
+    {"linear",          8},
+    {"log100",          9},
+    {"log316",         10},
+    {"iec61966-2-4",   11},
+    {"bt1361e",        12},
+    {"iec61966-2-1",   13},
+    {"bt2020-10",      14},
+    {"bt2020-12",      15},
+    {"smpte2084",      16},
+    {"smpte428",       17},
+    {"arib-std-b67",   18},
+    {"", 0} // termination
+};
+static const oapv_dict_str_int_t oapv_param_opts_color_matrix[] = {
+    {"gbr",                 0},
+    {"bt709",               1},
+    {"unspecified",         2},
+    {"reserved",            3},
+    {"fcc",                 4},
+    {"bt470bg",             5},
+    {"smpte170m",           6},
+    {"smpte240m",           7},
+    {"ycgco",               8},
+    {"bt2020nc",            9},
+    {"bt2020c",            10},
+    {"smpte2085",          11},
+    {"chroma-derived-nc",  12},
+    {"chroma-derived-c",   13},
+    {"ictcp",              14},
+    {"", 0} // termination
+};
+
+/*****************************************************************************
  * coding parameters
  *****************************************************************************/
 typedef struct oapve_param oapve_param_t;
 struct oapve_param {
-    /* profile_idc */
+    /* profile_idc defined in spec. */
     int           profile_idc;
-    /* level */
+    /* level_idc defined in spec. */
     int           level_idc;
-    /* band */
+    /* band_idc defined in spec. */
     int           band_idc;
     /* width of input frame */
     int           w;
@@ -417,10 +506,13 @@ struct oapve_param {
     unsigned char q_matrix[OAPV_MAX_CC][OAPV_BLK_D]; // raster-scan order
     /* color space */
     int           csp;
-    int           tile_cols;
-    int           tile_rows;
-    int           tile_w_mb;
-    int           tile_h_mb;
+    /* NOTE: tile_w and tile_h value can be changed internally,
+             if the values are not set properly.
+             the min and max values are defeind in APV specification */
+    int           tile_w; // width of tile MUST be N * MB width
+    int           tile_h; // height of tile MUST be N * MB height
+
+    /* preset for setting trade-off between complexity and coding gain */
     int           preset;
     /* color description values */
     int           color_description_present_flag;
@@ -433,6 +525,8 @@ struct oapve_param {
 /*****************************************************************************
  * description for encoder creation
  *****************************************************************************/
+#define OAPVE_CDESC_THREADS_AUTO          0
+
 typedef struct oapve_cdesc oapve_cdesc_t;
 struct oapve_cdesc {
     int           max_bs_buf_size;            // max bitstream buffer size
@@ -504,6 +598,7 @@ oapve_t OAPV_EXPORT oapve_create(oapve_cdesc_t *cdesc, int *err);
 void OAPV_EXPORT oapve_delete(oapve_t eid);
 int OAPV_EXPORT oapve_config(oapve_t eid, int cfg, void *buf, int *size);
 int OAPV_EXPORT oapve_param_default(oapve_param_t *param);
+int OAPV_EXPORT oapve_param_parse(oapve_param_t* param, const char* name,  const char* value);
 int OAPV_EXPORT oapve_encode(oapve_t eid, oapv_frms_t *ifrms, oapvm_t mid, oapv_bitb_t *bitb, oapve_stat_t *stat, oapv_frms_t *rfrms);
 
 /*****************************************************************************

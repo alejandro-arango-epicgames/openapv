@@ -29,6 +29,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if defined(LINUX)
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE // for sched_getaffinity()
+#endif
+#endif
+
 #include <stdarg.h>
 #include "oapv_port.h"
 
@@ -88,3 +94,38 @@ void oapv_trace_line(char *pre)
     str[chars] = '\0';
     printf("%s\n", str);
 }
+
+#if defined(WIN32) || defined(WIN64)
+#include <windows.h>
+#include <sysinfoapi.h>
+#elif defined(LINUX)
+#include <sched.h>
+#elif defined(MACOS)
+#include <unistd.h>
+#endif
+
+int oapv_get_num_cpu_cores(void)
+{
+    int num_cores = 1; // default
+#if defined(WIN32) || defined(WIN64)
+    {
+        SYSTEM_INFO si;
+        GetNativeSystemInfo(&si);
+        num_cores = si.dwNumberOfProcessors;
+    }
+#elif defined(LINUX)
+    {
+        cpu_set_t cset;
+        memset(&cset, 0, sizeof(cset));
+        if(!sched_getaffinity(0, sizeof(cset), &cset)) {
+            num_cores = CPU_COUNT(&cset);
+        }
+    }
+#elif defined(MACOS)
+    {
+        num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    }
+#endif
+    return num_cores;
+}
+

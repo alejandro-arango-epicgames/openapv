@@ -207,8 +207,8 @@ int y4m_header_parser(FILE *ip_y4m, y4m_params_t *y4m)
 
 static void y4m_update_param(args_parser_t *args, y4m_params_t *y4m)
 {
-    args->set_int(args, "width", y4m->w);
-    args->set_int(args, "height", y4m->h);
+    args->set_int2str(args, "width", y4m->w);
+    args->set_int2str(args, "height", y4m->h);
     char tmp_fps[256];
     sprintf(tmp_fps, "%d/%d", y4m->fps_num, y4m->fps_den);
     args->set_str(args, "fps", tmp_fps);
