@@ -347,7 +347,7 @@ typedef struct oapvd_ctx  oapvd_ctx_t;
 
 struct oapvd_core {
     ALIGNED_16(s16 coef[OAPV_MB_D]);
-    oapvd_ctx_t *ctx;
+    s16          q_mat[N_C][OAPV_BLK_D];
 
     int          prev_dc_ctx[N_C];
     int          prev_1st_ac_ctx[N_C];
@@ -356,10 +356,9 @@ struct oapvd_core {
                           /* and coded as abs_dc_coeff_diff and sign_dc_coeff_diff */
     int          qp[N_C];
     int          dq_shift[N_C];
-    s16          q_mat[N_C][OAPV_BLK_D];
-
     int          tile_idx;
 
+    oapvd_ctx_t *ctx;
     /* platform specific data, if needed */
     void        *pf;
 };
@@ -385,6 +384,7 @@ struct oapvd_ctx {
     int                     num_tile_rows;
     int                     w;
     int                     h;
+    int                     threads;
     oapv_tpool_t           *tpool;
     oapv_thread_t           thread_id[OAPV_MAX_THREADS];
     oapv_sync_obj_t         sync_obj;

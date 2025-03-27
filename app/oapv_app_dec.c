@@ -120,7 +120,7 @@ static args_var_t *args_init_vars(args_parser_t *args)
     args_set_variable_by_key_long(opts, "verbose", &op_verbose);
     op_verbose = VERBOSE_SIMPLE; /* default */
     args_set_variable_by_key_long(opts, "threads", &vars->threads);
-    vars->threads = 1; /* default */
+    vars->threads = OAPV_CDESC_THREADS_AUTO; /* default */
     args_set_variable_by_key_long(opts, "output-depth", &vars->output_depth);
     args_set_variable_by_key_long(opts, "output-csp", &vars->output_csp);
     vars->output_csp = 0; /* default: coded CSP */

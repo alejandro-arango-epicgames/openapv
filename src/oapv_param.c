@@ -31,8 +31,6 @@
 
 #include "oapv_def.h"
 
-#define LEVEL_TO_LEVEL_IDC(level) (int)(((level) * 30.0) + 0.5)
-
 int oapve_param_default(oapve_param_t *param)
 {
     oapv_mset(param, 0, sizeof(oapve_param_t));
@@ -47,7 +45,7 @@ int oapve_param_default(oapve_param_t *param)
     param->tile_h = 16 * OAPV_MB_H; // default: 256
 
     param->profile_idc = OAPV_PROFILE_422_10;
-    param->level_idc = LEVEL_TO_LEVEL_IDC(4.1);
+    param->level_idc = OAPV_LEVEL_TO_LEVEL_IDC(4.1);
     param->band_idc = 2;
 
     param->use_q_matrix = 0;
@@ -103,6 +101,10 @@ static int kbps_str_to_int(const char *str)
         char *tmp = strtok(s, "Mm ");
         kbps = (int)(atof(tmp) * 1000);
     }
+    else if(strchr(s, 'G') || strchr(s, 'g')) {
+        char *tmp = strtok(s, "Gg ");
+        kbps = (int)(atof(tmp) * 1000000);
+    }
     else {
         kbps = atoi(s);
     }
@@ -126,7 +128,6 @@ static int get_q_matrix(const char *str, u8 q_matrix[OAPV_BLK_D])
     oapv_assert_rv(qcnt == OAPV_BLK_D, -1);
     return 0;
 }
-
 
 #define NAME_CMP(VAL)      else if(strcmp(name, VAL)== 0)
 #define GET_INTEGER_OR_ERR(STR, F) { \
@@ -181,7 +182,7 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
             tf0 == 3.0f || tf0 == 3.1f || tf0 == 4.0f || tf0 == 4.1f ||\
             tf0 == 5.0f || tf0 == 5.1f || tf0 == 6.0f || tf0 == 6.1f ||\
             tf0 == 7.0f || tf0 == 7.1f) {
-            param->level_idc = LEVEL_TO_LEVEL_IDC(tf0);
+            param->level_idc = OAPV_LEVEL_TO_LEVEL_IDC(tf0);
         }
         else {
             return OAPV_ERR_INVALID_ARGUMENT;

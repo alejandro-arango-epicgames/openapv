@@ -469,6 +469,8 @@ static const oapv_dict_str_int_t oapv_param_opts_color_matrix[] = {
 /*****************************************************************************
  * coding parameters
  *****************************************************************************/
+#define OAPV_LEVEL_TO_LEVEL_IDC(level) (int)(((level) * 30.0) + 0.5)
+
 typedef struct oapve_param oapve_param_t;
 struct oapve_param {
     /* profile_idc defined in spec. */
@@ -522,11 +524,10 @@ struct oapve_param {
     int           full_range_flag;
 };
 
+#define OAPV_CDESC_THREADS_AUTO          0
 /*****************************************************************************
  * description for encoder creation
  *****************************************************************************/
-#define OAPVE_CDESC_THREADS_AUTO          0
-
 typedef struct oapve_cdesc oapve_cdesc_t;
 struct oapve_cdesc {
     int           max_bs_buf_size;            // max bitstream buffer size
