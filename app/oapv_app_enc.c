@@ -133,15 +133,15 @@ static const args_opt_t enc_args_opts[] = {
         "number of skipped access units before encoding"
     },
     {
-        ARGS_NO_KEY,  "qp-offset-c1", ARGS_VAL_TYPE_INTEGER, 0, NULL,
+        ARGS_NO_KEY,  "qp-offset-c1", ARGS_VAL_TYPE_STRING, 0, NULL,
         "QP offset value for Component 1 (Cb)"
     },
     {
-        ARGS_NO_KEY,  "qp-offset-c2", ARGS_VAL_TYPE_INTEGER, 0, NULL,
+        ARGS_NO_KEY,  "qp-offset-c2", ARGS_VAL_TYPE_STRING, 0, NULL,
         "QP offset value for Component 2 (Cr)"
     },
     {
-        ARGS_NO_KEY,  "qp-offset-c3", ARGS_VAL_TYPE_INTEGER, 0, NULL,
+        ARGS_NO_KEY,  "qp-offset-c3", ARGS_VAL_TYPE_STRING, 0, NULL,
         "QP offset value for Component 3"
     },
     {
@@ -549,7 +549,7 @@ static int update_param(args_var_t *vars, oapve_param_t *param)
 
 
     UPDATE_A_PARAM_W_KEY_VAL(param, "tile-w", vars->tile_w);
-    UPDATE_A_PARAM_W_KEY_VAL(param, "tile-w", vars->tile_h);
+    UPDATE_A_PARAM_W_KEY_VAL(param, "tile-h", vars->tile_h);
 
     param->csp = vars->input_csp;
     return 0;

@@ -363,15 +363,18 @@ struct oapv_frm_info {
     int           chroma_format_idc;
     int           bit_depth;
     int           capture_time_distance;
-    /* custom quantization matrix */
+    // flag for custom quantization matrix
     int           use_q_matrix;
-    unsigned char q_matrix[OAPV_MAX_CC][OAPV_BLK_D]; // only meaningful if use_q_matrix is true
-    /* color description values */
+    // q_matrix is meaningful if use_q_matrix is true
+    unsigned char q_matrix[OAPV_MAX_CC][OAPV_BLK_D];
+    // flag for color_description_present_flag */
     int           color_description_present_flag;
-    unsigned char color_primaries;          // only meaningful if color_description_present_flag is true
-    unsigned char transfer_characteristics; // only meaningful if color_description_present_flag is true
-    unsigned char matrix_coefficients;      // only meaningful if color_description_present_flag is true
-    int           full_range_flag;          // only meaningful if color_description_present_flag is true
+    // color_primaries, transfer_characteristics, matrix_coefficients, and
+    // full_range_flag are meaningful if color_description_present_flag is true
+    unsigned char color_primaries;
+    unsigned char transfer_characteristics;
+    unsigned char matrix_coefficients;
+    int           full_range_flag;
 };
 
 typedef struct oapv_au_info oapv_au_info_t;
@@ -529,14 +532,23 @@ struct oapve_param {
 
 #define OAPV_CDESC_THREADS_AUTO          0
 /*****************************************************************************
+ * automatic assignment of number of threads in creation of encoder & decoder
+ *****************************************************************************/
+#define OAPV_CDESC_THREADS_AUTO          0
+
+/*****************************************************************************
  * description for encoder creation
  *****************************************************************************/
 typedef struct oapve_cdesc oapve_cdesc_t;
 struct oapve_cdesc {
-    int           max_bs_buf_size;            // max bitstream buffer size
-    int           max_num_frms;               // max number of frames to be encoded
-    int           threads;                    // number of threads
-    oapve_param_t param[OAPV_MAX_NUM_FRAMES]; // encoding parameters
+    // max bitstream buffer size
+    int           max_bs_buf_size;
+    // max number of frames to be encoded
+    int           max_num_frms;
+    // max number of threads (or OAPV_CDESC_THREADS_AUTO for auto-assignment)
+    int           threads;
+    // encoding parameters
+    oapve_param_t param[OAPV_MAX_NUM_FRAMES];
 };
 
 /*****************************************************************************
@@ -544,9 +556,12 @@ struct oapve_cdesc {
  *****************************************************************************/
 typedef struct oapve_stat oapve_stat_t;
 struct oapve_stat {
-    int            write;                         // byte size of encoded bitstream
-    oapv_au_info_t aui;                           // information of encoded frames
-    int            frm_size[OAPV_MAX_NUM_FRAMES]; // bitstream byte size of each frame
+    // byte size of encoded bitstream
+    int            write;
+    // information of encoded frames
+    oapv_au_info_t aui;
+    // bitstream byte size of each frame
+    int            frm_size[OAPV_MAX_NUM_FRAMES];
 };
 
 /*****************************************************************************
@@ -554,7 +569,8 @@ struct oapve_stat {
  *****************************************************************************/
 typedef struct oapvd_cdesc oapvd_cdesc_t;
 struct oapvd_cdesc {
-    int threads; // number of threads
+    // max number of threads (or OAPV_CDESC_THREADS_AUTO for auto-assignment)
+    int threads;
 };
 
 /*****************************************************************************
@@ -562,9 +578,12 @@ struct oapvd_cdesc {
  *****************************************************************************/
 typedef struct oapvd_stat oapvd_stat_t;
 struct oapvd_stat {
-    int            read;                          // byte size of decoded bitstream (read size)
-    oapv_au_info_t aui;                           // information of decoded frames
-    int            frm_size[OAPV_MAX_NUM_FRAMES]; // bitstream byte size of each frame
+    // byte size of decoded bitstream (read size)
+    int            read;
+    // information of decoded frames
+    oapv_au_info_t aui;
+    // bitstream byte size of each frame
+    int            frm_size[OAPV_MAX_NUM_FRAMES];
 };
 
 /*****************************************************************************
@@ -582,7 +601,7 @@ struct oapvm_payload {
 /*****************************************************************************
  * interface for metadata container
  *****************************************************************************/
-typedef void       *oapvm_t; /* instance identifier for OAPV metadata container */
+typedef void       *oapvm_t; // instance identifier for OAPV metadata container
 
 oapvm_t OAPV_EXPORT oapvm_create(int *err);
 void OAPV_EXPORT oapvm_delete(oapvm_t mid);

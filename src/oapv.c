@@ -1306,7 +1306,9 @@ int oapve_encode(oapve_t eid, oapv_frms_t *ifrms, oapvm_t mid, oapv_bitb_t *bitb
     u8       *bs_pos_au_beg = oapv_bsw_sink(bs); // address syntax of au size
     u8       *bs_pos_pbu_beg;
     oapv_bs_t bs_pbu_beg;
-    oapv_bsw_write(bs, 0, 32);
+    oapv_bsw_write(bs, 0, 32); // raw bitstream byte size (skip)
+
+    oapv_bsw_write(bs, 0x61507631, 32); // signature ('aPv1')
 
     for(i = 0; i < ifrms->num_frms; i++) {
         frm = &ifrms->frm[i];
@@ -1380,7 +1382,7 @@ int oapve_encode(oapve_t eid, oapv_frms_t *ifrms, oapvm_t mid, oapv_bitb_t *bitb
         }
     }
 
-    u32 au_size = (u32)((u8 *)oapv_bsw_sink(bs) - bs_pos_au_beg) - 4;
+    u32 au_size = (u32)((u8 *)oapv_bsw_sink(bs) - bs_pos_au_beg) - 4 /* au_size */;
     oapv_bsw_write_direct(bs_pos_au_beg, au_size, 32); /* u(32) */
 
     oapv_bsw_deinit(&ctx->bs); /* de-init BSW */
@@ -1936,7 +1938,6 @@ void oapvd_delete(oapvd_t did)
 int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid, oapvd_stat_t *stat)
 {
     oapvd_ctx_t *ctx;
-    oapv_bs_t   *bs;
     oapv_pbuh_t  pbuh;
     int          ret = OAPV_OK;
     u32          pbu_size;
@@ -1946,7 +1947,16 @@ int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid
     ctx = dec_id_to_ctx(did);
     oapv_assert_rv(ctx, OAPV_ERR_INVALID_ARGUMENT);
 
+    // read signature ('aPv1')
+    oapv_assert_rv(bitb->ssize > 4, OAPV_ERR_MALFORMED_BITSTREAM);
+    u32 signature = oapv_bsr_read_direct(bitb->addr, 32);
+    oapv_assert_rv(signature == 0x61507631, OAPV_ERR_MALFORMED_BITSTREAM);
+    cur_read_size += 4;
+    stat->read += 4;
+
+    // decode PBUs
     do {
+        oapv_bs_t   *bs;
         u32 remain = bitb->ssize - cur_read_size;
         oapv_assert_gv((remain >= 8), ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
         oapv_bsr_init(&ctx->bs, (u8 *)bitb->addr + cur_read_size, remain, NULL);
@@ -2009,7 +2019,7 @@ int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid
 
             ofrms->frm[frame_cnt].pbu_type = pbuh.pbu_type;
             ofrms->frm[frame_cnt].group_id = pbuh.group_id;
-            stat->frm_size[frame_cnt] = pbu_size + 4 /* PUB size length*/;
+            stat->frm_size[frame_cnt] = pbu_size + 4 /* byte size of 'pbu_size' syntax */;
             frame_cnt++;
         }
         else if(pbuh.pbu_type == OAPV_PBU_TYPE_METADATA) {
@@ -2022,7 +2032,7 @@ int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid
             ret = oapvd_vlc_filler(bs, (pbu_size - 4));
             oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
         }
-        cur_read_size += pbu_size + 4;
+        cur_read_size += pbu_size + 4 /* byte size of 'pbu_size' syntax */;
     } while(cur_read_size < bitb->ssize);
     stat->aui.num_frms = frame_cnt;
     oapv_assert_gv(ofrms->num_frms == frame_cnt, ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
@@ -2055,15 +2065,22 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
 {
     int ret, frm_count = 0;
     u32 cur_read_size = 0;
+    int pbu_count = 0;
+    oapv_bs_t bs;
 
     DUMP_SET(0);
 
-    /* 'au' address contains series of PBU */
+    // read signature ('aPv1')
+    oapv_assert_rv(au_size > 4, OAPV_ERR_MALFORMED_BITSTREAM);
+    u32 signature = oapv_bsr_read_direct(au, 32);
+    oapv_assert_rv(signature == 0x61507631, OAPV_ERR_MALFORMED_BITSTREAM);
+    cur_read_size += 4;
+
+    // parse PBUs
     do {
-        oapv_bs_t bs;
         u32 pbu_size = 0;
         u32 remain = au_size - cur_read_size;
-        oapv_assert_rv((remain >= 8), OAPV_ERR_MALFORMED_BITSTREAM);
+        oapv_assert_rv(remain >= 8, OAPV_ERR_MALFORMED_BITSTREAM);
         oapv_bsr_init(&bs, (u8 *)au + cur_read_size, remain, NULL);
 
         ret = oapvd_vlc_pbu_size(&bs, &pbu_size); // read pbu_size (4 byte)
@@ -2105,6 +2122,7 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
         }
         aui->num_frms = frm_count;
         cur_read_size += pbu_size + 4; /* 4byte is for pbu_size syntax itself */
+        pbu_count++;
     } while(cur_read_size < au_size);
     DUMP_SET(1);
     return OAPV_OK;
