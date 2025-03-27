@@ -638,44 +638,11 @@ static double enc_block_rdo_placebo(oapve_ctx_t *ctx, oapve_core_t *core, int lo
     return best_cost;
 }
 
-static int enc_update_param(oapve_ctx_t* ctx, oapve_param_t* param)
-{
-    /* set various value */
-    ctx->w = oapv_div_round_up(param->w, OAPV_MB_W) * OAPV_MB_W;
-    ctx->h = oapv_div_round_up(param->h, OAPV_MB_H) * OAPV_MB_H;
-
-    /* find correct tile width and height */
-    int tile_w, tile_h;
-
-    oapv_assert_rv(param->tile_w >= OAPV_MIN_TILE_W && param->tile_h >= OAPV_MIN_TILE_H, OAPV_ERR_INVALID_ARGUMENT);
-    oapv_assert_rv((param->tile_w & (OAPV_MB_W - 1)) == 0 && (param->tile_h & (OAPV_MB_H - 1)) == 0, OAPV_ERR_INVALID_ARGUMENT);
-
-    if (oapv_div_round_up(ctx->w, param->tile_w) > OAPV_MAX_TILE_COLS) {
-        tile_w = oapv_div_round_up(ctx->w, OAPV_MAX_TILE_COLS);
-        tile_w = oapv_div_round_up(tile_w, OAPV_MB_W) * OAPV_MB_W; // align to MB width
-    }
-    else {
-        tile_w = param->tile_w;
-    }
-    param->tile_w = tile_w;
-
-    if (oapv_div_round_up(ctx->h, param->tile_h) > OAPV_MAX_TILE_ROWS) {
-        tile_h = oapv_div_round_up(ctx->h, OAPV_MAX_TILE_ROWS);
-        tile_h = oapv_div_round_up(tile_h, OAPV_MB_H) * OAPV_MB_H; // align to MB height
-    }
-    else {
-        tile_h = param->tile_h;
-    }
-    param->tile_h = tile_h;
-
-    return OAPV_OK;
-}
-
 static int enc_read_param(oapve_ctx_t *ctx, oapve_param_t *param)
 {
     /* check input parameters */
     oapv_assert_rv(param->w > 0 && param->h > 0, OAPV_ERR_INVALID_ARGUMENT);
-    oapv_assert_rv(param->qp >= MIN_QUANT && param->qp <= MAX_QUANT(10), OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv((param->qp >= MIN_QUANT && param->qp <= MAX_QUANT(10)) || param->qp == OAPVE_PARAM_QP_AUTO, OAPV_ERR_INVALID_ARGUMENT);
 
     ctx->qp_offset[Y_C] = 0;
     ctx->qp_offset[U_C] = param->qp_offset_c1;
@@ -732,7 +699,9 @@ static void enc_flush(oapve_ctx_t *ctx)
         }
     }
 
-    oapv_tpool_sync_obj_delete(&ctx->sync_obj);
+    if (ctx->sync_obj != NULL) {
+        oapv_tpool_sync_obj_delete(&ctx->sync_obj);
+    }
     for(int i = 0; i < ctx->threads; i++) {
         enc_core_free(ctx->core[i]);
         ctx->core[i] = NULL;
@@ -747,20 +716,8 @@ static int enc_ready(oapve_ctx_t *ctx)
     int           ret = OAPV_OK;
     oapv_assert(ctx->core[0] == NULL);
 
-    int min_num_tiles = OAPV_MAX_TILES;
-    for (int i = 0; i < ctx->cdesc.max_num_frms; i++) {
-        enc_update_param(ctx, &ctx->cdesc.param[i]);
-        int num_tiles = oapv_div_round_up(ctx->w, ctx->cdesc.param[i].tile_w) * oapv_div_round_up(ctx->h, ctx->cdesc.param[i].tile_h);
-        min_num_tiles = oapv_min(min_num_tiles, num_tiles);
-    }
-
-    if(ctx->cdesc.threads == OAPV_CDESC_THREADS_AUTO) {
-        int num_cores = oapv_get_num_cpu_cores();
-        ctx->threads = oapv_min(OAPV_MAX_THREADS, oapv_min(num_cores, min_num_tiles));
-    }
-    else {
-        ctx->threads = ctx->cdesc.threads;
-    }
+    ret = oapve_param_update(ctx);
+    oapv_assert_g(ret == OAPV_OK, ERR);
 
     for(int i = 0; i < ctx->threads; i++) {
         core = enc_core_alloc();
@@ -797,7 +754,6 @@ static int enc_ready(oapve_ctx_t *ctx)
 
     return OAPV_OK;
 ERR:
-
     enc_flush(ctx);
 
     return ret;
@@ -1183,7 +1139,12 @@ static int enc_frame(oapve_ctx_t *ctx)
         }
 
         ctx->rc_param.lambda = oapve_rc_estimate_pic_lambda(ctx, cost_sum);
-        ctx->rc_param.qp = oapve_rc_estimate_pic_qp(ctx->rc_param.lambda);
+        if (ctx->param->qp == OAPVE_PARAM_QP_AUTO || ctx->rc_param.is_updated != 0) {
+            ctx->rc_param.qp = oapve_rc_estimate_pic_qp(ctx->rc_param.lambda);
+        }
+        else {
+            ctx->rc_param.qp = ctx->param->qp;
+        }
 
         for(int c = 0; c < ctx->num_comp; c++) {
             ctx->qp[c] = oapv_clip3(MIN_QUANT, MAX_QUANT(10), ctx->rc_param.qp + ctx->qp_offset[c]);

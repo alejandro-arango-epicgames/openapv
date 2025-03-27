@@ -36,6 +36,7 @@
 
 int oapve_param_default(oapve_param_t *param);
 int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value);
+int oapve_param_update(oapve_ctx_t* ctx);
 
 #endif /* __OAPV_PARAM_H__32943289478329438247238643278463728473829__ */
 

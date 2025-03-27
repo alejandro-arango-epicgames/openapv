@@ -30,13 +30,14 @@
  */
 
 #include "oapv_def.h"
+#include <string.h>
 
 int oapve_param_default(oapve_param_t *param)
 {
     oapv_mset(param, 0, sizeof(oapve_param_t));
     param->preset = OAPV_PRESET_DEFAULT;
 
-    param->qp = 10; // default
+    param->qp = OAPVE_PARAM_QP_AUTO; // default
     param->qp_offset_c1 = 0;
     param->qp_offset_c2 = 0;
     param->qp_offset_c3 = 0;
@@ -45,7 +46,7 @@ int oapve_param_default(oapve_param_t *param)
     param->tile_h = 16 * OAPV_MB_H; // default: 256
 
     param->profile_idc = OAPV_PROFILE_422_10;
-    param->level_idc = OAPV_LEVEL_TO_LEVEL_IDC(4.1);
+    param->level_idc = OAPVE_PARAM_LEVEL_IDC_AUTO;
     param->band_idc = 2;
 
     param->use_q_matrix = 0;
@@ -175,17 +176,22 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
         param->profile_idc = ti0;
     }
     NAME_CMP("level") {
-        GET_FLOAT_OR_ERR(value, tf0);
-        // validation check
-        // level == [1, 1.1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 6, 6.1, 7, 7.1]
-        if(tf0 == 1.0f || tf0 == 1.1f || tf0 == 2.0f || tf0 == 2.1f || \
-            tf0 == 3.0f || tf0 == 3.1f || tf0 == 4.0f || tf0 == 4.1f ||\
-            tf0 == 5.0f || tf0 == 5.1f || tf0 == 6.0f || tf0 == 6.1f ||\
-            tf0 == 7.0f || tf0 == 7.1f) {
-            param->level_idc = OAPV_LEVEL_TO_LEVEL_IDC(tf0);
+        if(!strcmp(value, "auto")) {
+            param->level_idc = OAPVE_PARAM_LEVEL_IDC_AUTO;
         }
         else {
-            return OAPV_ERR_INVALID_ARGUMENT;
+            GET_FLOAT_OR_ERR(value, tf0);
+            // validation check
+            // level == [1, 1.1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 6, 6.1, 7, 7.1]
+            if(tf0 == 1.0f || tf0 == 1.1f || tf0 == 2.0f || tf0 == 2.1f || \
+                tf0 == 3.0f || tf0 == 3.1f || tf0 == 4.0f || tf0 == 4.1f ||\
+                tf0 == 5.0f || tf0 == 5.1f || tf0 == 6.0f || tf0 == 6.1f ||\
+                tf0 == 7.0f || tf0 == 7.1f) {
+                param->level_idc = OAPV_LEVEL_TO_LEVEL_IDC(tf0);
+            }
+            else {
+                return OAPV_ERR_INVALID_ARGUMENT;
+            }
         }
     }
     NAME_CMP("band") {
@@ -224,13 +230,19 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
         }
     }
     NAME_CMP("qp") {
-        //  QP value: 0 ~ (63 + (bitdepth - 10)*6)
-        //     - 10bit input: 0 ~ 63"
-        //     - 12bit input: 0 ~ 75"
-        // max value cannot be decided without bitdepth value
-        GET_INTEGER_MIN_MAX_OR_ERR(value, ti0, MIN_QUANT, MAX_QUANT(12));
-        param->qp = ti0;
-        param->rc_type = OAPV_RC_CQP;
+        if(!strcmp(value, "auto")) {
+            param->qp = OAPVE_PARAM_QP_AUTO;
+            param->rc_type = OAPV_RC_ABR;
+        }
+        else {
+            //  QP value: 0 ~ (63 + (bitdepth - 10)*6)
+            //     - 10bit input: 0 ~ 63"
+            //     - 12bit input: 0 ~ 75"
+            // max value cannot be decided without bitdepth value
+            GET_INTEGER_MIN_MAX_OR_ERR(value, ti0, MIN_QUANT, MAX_QUANT(12));
+            param->qp = ti0;
+            param->rc_type = OAPV_RC_CQP;
+        }
     }
     NAME_CMP("qp_offset_c1") {
         GET_INTEGER_OR_ERR(value, ti0);
@@ -326,3 +338,159 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
     return OAPV_OK;
 }
 
+#define MAX_LEVEL_NUM 14
+#define MAX_BAND_NUM  4
+
+static float level_avail[MAX_LEVEL_NUM] = {
+    1, 1.1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 6, 6.1, 7, 7.1
+};
+
+static int level_idc_to_level_idx(int level_idc)
+{
+    for (int i = 0; i < MAX_LEVEL_NUM; i++) {
+        if (level_idc == OAPV_LEVEL_TO_LEVEL_IDC(level_avail[i])) {
+            return i;
+        }
+    }
+
+    return OAPV_ERR;
+}
+
+static int max_coded_data_rate[MAX_LEVEL_NUM][MAX_BAND_NUM] = {
+    {     7000,    11000,     14000,     21000 },
+    {    14000,    21000,     28000,     42000 },
+    {    36000,    53000,     71000,    106000 },
+    {    71000,   106000,    141000,    212000 },
+    {   101000,   151000,    201000,    301000 },
+    {   201000,   301000,    401000,    602000 },
+    {   401000,   602000,    780000,   1170000 },
+    {   780000,  1170000,   1560000,   2340000 },
+    {  1560000,  2340000,   3324000,   4986000 },
+    {  3324000,  4986000,   6648000,   9972000 },
+    {  6648000,  9972000,  13296000,  19944000 },
+    { 13296000, 19944000,  26592000,  39888000 },
+    { 26592000, 39888000,  53184000,  79776000 },
+    { 53184000, 79776000, 106368000, 159552000 }
+};
+
+static u64 max_luma_sample_rate[MAX_LEVEL_NUM] = {
+    3041280,     6082560,    15667200,   31334400,
+    66846720,    133693440,  265420800,  530841600,
+    1061683200,  2123366400, 4777574400, 8493465600,
+    16986931200, 33973862400
+};
+
+static int enc_update_param_level(oapve_param_t* param)
+{
+    int w = oapv_div_round_up(param->w, OAPV_MB_W) * OAPV_MB_W;
+    int h = oapv_div_round_up(param->h, OAPV_MB_H) * OAPV_MB_H;
+    double fps = (double)param->fps_num / param->fps_den;
+    u64 luma_sample_rate = (int)((double)w * h * fps);
+    int min_level_idx = 0;
+    for (int i = 0 ; i < MAX_LEVEL_NUM ; i++) {
+        if (luma_sample_rate < max_luma_sample_rate[i]) {
+            min_level_idx = i;
+            break;
+        }
+    }
+
+    if (param->bitrate > 0) {
+        for (int i = min_level_idx; i < MAX_LEVEL_NUM; i++) {
+            if (param->bitrate < max_coded_data_rate[i][param->band_idc]) {
+                min_level_idx = i;
+                break;
+            }
+
+        }
+    }
+
+    int min_level_idc = OAPV_LEVEL_TO_LEVEL_IDC(level_avail[min_level_idx]);
+
+    if (param->level_idc == OAPVE_PARAM_LEVEL_IDC_AUTO) {
+        param->level_idc = min_level_idc;
+    }
+    else {
+        if (param->level_idc < min_level_idc) {
+            return OAPV_ERR_INVALID_LEVEL;
+        }
+    }
+
+    return OAPV_OK;
+}
+
+static int enc_update_param_bitrate(oapve_param_t* param)
+{
+    int level_idx = level_idc_to_level_idx(param->level_idc);
+
+    if (param->bitrate == 0 && param->qp == OAPVE_PARAM_QP_AUTO) {
+        param->bitrate = max_coded_data_rate[level_idx][param->band_idc];
+    }
+    else if (param->bitrate > 0) {
+        if (param->bitrate > max_coded_data_rate[level_idx][param->band_idc]) {
+            return OAPV_ERR_INVALID_LEVEL;
+        }
+    }
+
+    return OAPV_OK;
+}
+
+static int enc_update_param_tile(oapve_ctx_t* ctx, oapve_param_t* param)
+{
+    /* set various value */
+    ctx->w = oapv_div_round_up(param->w, OAPV_MB_W) * OAPV_MB_W;
+    ctx->h = oapv_div_round_up(param->h, OAPV_MB_H) * OAPV_MB_H;
+
+    /* find correct tile width and height */
+    int tile_w, tile_h;
+
+    oapv_assert_rv(param->tile_w >= OAPV_MIN_TILE_W && param->tile_h >= OAPV_MIN_TILE_H, OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv((param->tile_w & (OAPV_MB_W - 1)) == 0 && (param->tile_h & (OAPV_MB_H - 1)) == 0, OAPV_ERR_INVALID_ARGUMENT);
+
+    if (oapv_div_round_up(ctx->w, param->tile_w) > OAPV_MAX_TILE_COLS) {
+        tile_w = oapv_div_round_up(ctx->w, OAPV_MAX_TILE_COLS);
+        tile_w = oapv_div_round_up(tile_w, OAPV_MB_W) * OAPV_MB_W; // align to MB width
+    }
+    else {
+        tile_w = param->tile_w;
+    }
+    param->tile_w = tile_w;
+
+    if (oapv_div_round_up(ctx->h, param->tile_h) > OAPV_MAX_TILE_ROWS) {
+        tile_h = oapv_div_round_up(ctx->h, OAPV_MAX_TILE_ROWS);
+        tile_h = oapv_div_round_up(tile_h, OAPV_MB_H) * OAPV_MB_H; // align to MB height
+    }
+    else {
+        tile_h = param->tile_h;
+    }
+    param->tile_h = tile_h;
+
+    return OAPV_OK;
+}
+
+int oapve_param_update(oapve_ctx_t* ctx)
+{
+    int ret = OAPV_OK;
+    int min_num_tiles = OAPV_MAX_TILES;
+    for (int i = 0; i < ctx->cdesc.max_num_frms; i++) {
+        ret = enc_update_param_tile(ctx, &ctx->cdesc.param[i]);
+        oapv_assert_rv(ret == OAPV_OK, ret);
+        int num_tiles = oapv_div_round_up(ctx->w, ctx->cdesc.param[i].tile_w) * oapv_div_round_up(ctx->h, ctx->cdesc.param[i].tile_h);
+        min_num_tiles = oapv_min(min_num_tiles, num_tiles);
+
+        ret = enc_update_param_level(&ctx->cdesc.param[i]);
+        oapv_assert_rv(ret == OAPV_OK, ret);
+
+        ret = enc_update_param_bitrate(&ctx->cdesc.param[i]);
+        oapv_assert_rv(ret == OAPV_OK, ret);
+    }
+
+    if (ctx->cdesc.threads == OAPV_CDESC_THREADS_AUTO) {
+        int num_cores = oapv_get_num_cpu_cores();
+        ctx->threads = oapv_min(OAPV_MAX_THREADS, oapv_min(num_cores, min_num_tiles));
+    }
+    else {
+        ctx->threads = ctx->cdesc.threads;
+    }
+
+    return ret;
+}

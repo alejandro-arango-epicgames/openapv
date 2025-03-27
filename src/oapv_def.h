@@ -199,6 +199,7 @@ typedef struct oapve_rc_param {
     int    qp;
     double lambda;
     double cost;
+    unsigned char is_updated;
 } oapve_rc_param_t;
 
 typedef struct oapve_rc_tile {

@@ -82,15 +82,16 @@ static const args_opt_t enc_args_opts[] = {
         "QP value: 0 ~ (63 + (bitdepth - 10)*6) \n"
         "      - 10bit input: 0 ~ 63\n"
         "      - 12bit input: 0 ~ 75"
+        "      - 'auto' means that the value is internally determined"
     },
     {
         'z',  "fps", ARGS_VAL_TYPE_STRING | ARGS_VAL_TYPE_MANDATORY, 0, NULL,
         "frame rate (frame per second))"
     },
     {
-        'm',  "threads", ARGS_VAL_TYPE_INTEGER, 0, NULL,
+        'm',  "threads", ARGS_VAL_TYPE_STRING, 0, NULL,
         "force to use a specific number of threads\n"
-        "      - '0' means decision of the number automatically"
+        "      - 'auto' means that the value is internally determined"
     },
     {
         ARGS_NO_KEY,  "preset", ARGS_VAL_TYPE_STRING, 0, NULL,
@@ -116,10 +117,11 @@ static const args_opt_t enc_args_opts[] = {
     },
     {
         ARGS_NO_KEY,  "level", ARGS_VAL_TYPE_STRING, 0, NULL,
-        "level setting (1, 1.1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 6, 6.1, 7, 7.1)"
+        "level setting (1, 1.1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 6, 6.1, 7, 7.1)\n"
+        "      - 'auto' means that the value is internally determined"
     },
     {
-        ARGS_NO_KEY,  "band", ARGS_VAL_TYPE_INTEGER, 0, NULL,
+        ARGS_NO_KEY,  "band", ARGS_VAL_TYPE_STRING, 0, NULL,
         "band setting (0, 1, 2, 3)"
     },
     {
@@ -193,7 +195,7 @@ typedef struct args_var {
     int            input_depth;
     int            input_csp;
     int            seek;
-    int            threads;
+    char           threads[16];
 
     char           profile[16];
     char           level[16];
@@ -254,7 +256,7 @@ static args_var_t *args_init_vars(args_parser_t *args, oapve_param_t *param)
     args_set_variable_by_key_long(opts, "profile", vars->profile);
     strcpy(vars->profile, "422-10");
     args_set_variable_by_key_long(opts, "level", vars->level);
-    strcpy(vars->level, "4.1");
+    strcpy(vars->level, "auto"); /* default */
     args_set_variable_by_key_long(opts, "band", vars->band);
     strcpy(vars->band, "2"); /* default */
 
@@ -263,6 +265,7 @@ static args_var_t *args_init_vars(args_parser_t *args, oapve_param_t *param)
     args_set_variable_by_key_long(opts, "fps", vars->fps);
 
     args_set_variable_by_key_long(opts, "qp", vars->qp);
+    strcpy(vars->qp, "auto"); /* default */
     args_set_variable_by_key_long(opts, "qp_offset_c1", vars->qp_offset_c1);
     args_set_variable_by_key_long(opts, "qp_offset_c2", vars->qp_offset_c2);
     args_set_variable_by_key_long(opts, "qp_offset_c3", vars->qp_offset_c3);
@@ -274,8 +277,8 @@ static args_var_t *args_init_vars(args_parser_t *args, oapve_param_t *param)
     args_set_variable_by_key_long(opts, "q-matrix-c2", vars->q_matrix_c2);
     args_set_variable_by_key_long(opts, "q-matrix-c3", vars->q_matrix_c3);
 
-    args_set_variable_by_key_long(opts, "threads", &vars->threads);
-    vars->threads = OAPV_CDESC_THREADS_AUTO; /* default */
+    args_set_variable_by_key_long(opts, "threads", vars->threads);
+    strcpy(vars->threads, "auto");
 
     args_set_variable_by_key_long(opts, "tile-w", vars->tile_w);
     args_set_variable_by_key_long(opts, "tile-h", vars->tile_h);
@@ -692,7 +695,12 @@ int main(int argc, const char **argv)
 
     cdesc.max_bs_buf_size = MAX_BS_BUF; /* maximum bitstream buffer size */
     cdesc.max_num_frms = MAX_NUM_FRMS;
-    cdesc.threads = args_var->threads;
+    if(!strcmp(args_var->threads, "auto")){
+        cdesc.threads = OAPV_CDESC_THREADS_AUTO;
+    }
+    else {
+        cdesc.threads = atoi(args_var->threads);
+    }
 
     if(check_conf(&cdesc, args_var)) {
         logerr("invalid configuration\n");
@@ -730,10 +738,9 @@ int main(int argc, const char **argv)
     }
 
     /* create encoder */
-    id = oapve_create(&cdesc, NULL);
+    id = oapve_create(&cdesc, &ret);
     if(id == NULL) {
         logerr("cannot create OAPV encoder\n");
-        ret = -1;
         goto ERR;
     }
 

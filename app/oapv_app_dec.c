@@ -69,8 +69,9 @@ static const args_opt_t dec_args_opts[] = {
         "maximum number of access units to be decoded"
     },
     {
-        'm',  "threads", ARGS_VAL_TYPE_INTEGER, 0, NULL,
+        'm',  "threads", ARGS_VAL_TYPE_STRING, 0, NULL,
         "force to use a specific number of threads"
+        "      - 'auto' means that the value is internally determined"
     },
     {
         'd',  "output-depth", ARGS_VAL_TYPE_INTEGER, 0, NULL,
@@ -98,7 +99,7 @@ typedef struct args_var {
     char fname_out[256];
     int  max_au;
     int  hash;
-    int  threads;
+    char threads[16];
     int  output_depth;
     int  output_csp;
 } args_var_t;
@@ -119,8 +120,8 @@ static args_var_t *args_init_vars(args_parser_t *args)
     args_set_variable_by_key_long(opts, "hash", &vars->hash);
     args_set_variable_by_key_long(opts, "verbose", &op_verbose);
     op_verbose = VERBOSE_SIMPLE; /* default */
-    args_set_variable_by_key_long(opts, "threads", &vars->threads);
-    vars->threads = OAPV_CDESC_THREADS_AUTO; /* default */
+    args_set_variable_by_key_long(opts, "threads", vars->threads);
+    strcpy(vars->threads, "auto");
     args_set_variable_by_key_long(opts, "output-depth", &vars->output_depth);
     args_set_variable_by_key_long(opts, "output-csp", &vars->output_csp);
     vars->output_csp = 0; /* default: coded CSP */
@@ -445,7 +446,12 @@ int main(int argc, const char **argv)
         goto ERR;
     }
     // create decoder
-    cdesc.threads = args_var->threads;
+    if(!strcmp(args_var->threads, "auto")){
+        cdesc.threads = OAPV_CDESC_THREADS_AUTO;
+    }
+    else {
+        cdesc.threads = atoi(args_var->threads);
+    }
     did = oapvd_create(&cdesc, &ret);
     if(did == NULL) {
         logerr("ERROR: cannot create OAPV decoder (err=%d)\n", ret);
