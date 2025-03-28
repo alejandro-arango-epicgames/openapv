@@ -41,6 +41,16 @@ fn get_0xff_ext_var_bytes(auto addr) {
     return read;
 };
 
+fn get_num_comp(auto chroma_format_idc) {
+    u32 nc = 0;
+
+    if(chroma_format_idc == 0) nc = 1;
+    else if(chroma_format_idc == 4) nc = 4;
+    else nc = 3;
+
+    return nc;
+};
+
 struct PbuBase {
 
     u32 read = 0;
@@ -93,7 +103,46 @@ bitfield FrmInfo {
     reserved_zero_8bits: 8;
 };
 
+bitfield ColorInfo {
+    u32 readbits = 25;
+
+    color_primaries : 8;
+    transfer_characteristics : 8;
+    matrix_coefficients : 8;
+    bool full_range_flag : 1;
+};
+
+bitfield FrmHeader {
+    u32 readbits = 0;
+    u32 ncomps = 0;
+
+    FrmInfo finfo [[name("frame_info()")]];
+    readbits += (12 * 8);
+
+    ncomps = get_num_comp(finfo.chroma_format_idc);
+    std::print("    NumComps = {:d}", ncomps);
+
+    reserved_zero_8bits : 8;
+    readbits += 8;
+
+    bool color_description_present_flag : 1;
+    readbits += 1;
+    if(color_description_present_flag) {
+        ColorInfo color_description;
+        readbits += color_description.readbits;
+    }
+    bool use_q_matrix : 1;
+    readbits += 1;
+    if(use_q_matrix) {
+        // need to implement
+        std::print("    ERR: not implemented yet!!!\n");
+    }
+};
+
 struct PbuFrm:PbuBase {
+    u32 frmh_bits = 0;
+    u32 NumComps = 0;
+    u32 NumTiles = 0;
 
     if(pbu_type == PbuType::FRM_PRI) ptype_str = "Frm(Pri)";
     else if(pbu_type == PbuType::FRM_NONPRI) ptype_str = "Frm(Nonpri)";
@@ -102,8 +151,9 @@ struct PbuFrm:PbuBase {
     else if(pbu_type == PbuType::FRM_ALPHA) ptype_str = "Frm(Alpha)";
     else ptype_str = "Frm(Unknown)";
 
-    FrmInfo finfo [[name("frame_info()")]];
-    read += 12; // byte size of frame_info()
+    FrmHeader fh [[name("frame_header()")]];
+
+    read += (fh.readbits + 7) >> 3;
 
     u8 frameData[pbu_size - read] [[sealed]];
 };
@@ -136,7 +186,6 @@ struct MetadataPayload {
     u8 payloadData[while($ < endOffset)] [[sealed]];
 
     metadata_payload_count += 1;
-
 
 } [[name(std::format("MetadataPayload[{}]:{}", (metadata_payload_count - 1), ptype_str))]];
 
@@ -192,15 +241,18 @@ struct PBU {
 
 } [[name(std::format("PBU[{}]:{}", (pbu_count - 1), Pbu.ptype_str))]];
 
+
 u32 au_count = 0;
 
 struct AccessUnit {
     u64 au_end = 0;
 
     u32 au_size; // originally this syntax is part of RawBitstream
+
     std::print("AU[{:d}] size = {:d}", au_count, au_size);
 
     au_end = $ + au_size;
+
     pbu_count = 0; // reset number of PBU
 
     char signature[4]; // 'aPv1'

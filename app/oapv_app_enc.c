@@ -587,6 +587,14 @@ int main(int argc, const char **argv)
     int            cfmt;                      // color format
     const int      num_frames = MAX_NUM_FRMS; // number of frames in an access unit
 
+    // print logo
+    logv2("  ____                ___   ___ _   __\n");
+    logv2(" / __ \\___  ___ ___  / _ | / _ \\ | / / Encoder (v%s)\n", oapv_version());
+    logv2("/ /_/ / _ \\/ -_) _ \\/ __ |/ ___/ |/ / \n");
+    logv2("\\____/ .__/\\__/_//_/_/ |_/_/   |___/  \n");
+    logv2("    /_/                               \n");
+    logv2("\n");
+
     /* help message */
     if(argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")) {
         print_usage(argv);
@@ -620,14 +628,6 @@ int main(int argc, const char **argv)
         ret = -1;
         goto ERR;
     }
-    // print logo
-    logv2("  ____                ___   ___ _   __\n");
-    logv2(" / __ \\___  ___ ___  / _ | / _ \\ | / / Encoder\n");
-    logv2("/ /_/ / _ \\/ -_) _ \\/ __ |/ ___/ |/ / \n");
-    logv2("\\____/ .__/\\__/_//_/_/ |_/_/   |___/  \n");
-    logv2("    /_/                               \n");
-    logv2("\n");
-
     // print command line string for information
     print_commandline(argc, argv);
 

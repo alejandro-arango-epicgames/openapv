@@ -1,7 +1,7 @@
 ![OAPV](/readme/img/oapv_logo_bar_256.png)
 # OpenAPV (Open Advanced Professional Video Codec)
 
-[![Build and test](https://github.com/openapv/openapv/actions/workflows/build.yml/badge.svg)](https://github.com/openapv/openapv/actions/workflows/build.yml)
+[![Build and test](https://github.com/AcademySoftwareFoundation/openapv/actions/workflows/build.yml/badge.svg)](https://github.com/AcademySoftwareFoundation/openapv/actions/workflows/build.yml)
 
 OpenAPV provides the reference implementation of the [APV codec](#apv-codec) which can be used to record professional-grade video and associated metadata without quality degradation. OpenAPV is free and open source software provided by [LICENSE](#license).
 
@@ -44,7 +44,7 @@ The APV codec standard has the following features:
   For ARM
   - gcc-aarch64-linux-gnu
   - binutils-aarch64-linux-gnu
- 
+
   For Windows (crosscompile)
   - mingw-w64
   - mingw-w64-tools
@@ -57,13 +57,13 @@ The APV codec standard has the following features:
 
 - Build Instructions ARM (Crosscompile)
   ```
-  cmake -S . -B build-arm -DCMAKE_TOOLCHAIN_FILE=aarch64_toolchain.cmake -DCMAKE_BUILD_TYPE=Release 
+  cmake -S . -B build-arm -DCMAKE_TOOLCHAIN_FILE=aarch64_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
   cmake --build build-arm
   ```
 
 - Build Instructions Windows (Crosscompile)
   ```
-  cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=windows_x86_64_toolchain.cmake -DCMAKE_BUILD_TYPE=Release 
+  cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=windows_x86_64_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
   cmake --build build-windows
   ```
 

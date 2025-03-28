@@ -2132,3 +2132,6 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
 // end of decoder code
 #endif // ENABLE_DECODER
 ///////////////////////////////////////////////////////////////////////////////
+
+static char *oapv_ver = "0.1.13.1";
+char * oapv_version() { return oapv_ver; }

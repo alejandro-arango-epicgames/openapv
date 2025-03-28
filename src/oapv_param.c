@@ -244,15 +244,15 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
             param->rc_type = OAPV_RC_CQP;
         }
     }
-    NAME_CMP("qp_offset_c1") {
+    NAME_CMP("qp-offset-c1") {
         GET_INTEGER_OR_ERR(value, ti0);
         param->qp_offset_c1 = ti0;
     }
-    NAME_CMP("qp_offset_c2") {
+    NAME_CMP("qp-offset-c2") {
         GET_INTEGER_OR_ERR(value, ti0);
         param->qp_offset_c2 = ti0;
     }
-    NAME_CMP("qp_offset_c3") {
+    NAME_CMP("qp-offset-c3") {
         GET_INTEGER_OR_ERR(value, ti0);
         param->qp_offset_c3 = ti0;
     }
