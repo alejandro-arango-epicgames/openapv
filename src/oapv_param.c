@@ -335,6 +335,10 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
         param->full_range_flag = ti0;
         param->color_description_present_flag = 1;
     }
+    else {
+        return OAPV_ERR_INVALID_ARGUMENT;
+    }
+
     return OAPV_OK;
 }
 
