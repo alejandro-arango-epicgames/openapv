@@ -392,7 +392,7 @@ static int enc_update_param_level(oapve_param_t* param)
     u64 luma_sample_rate = (int)((double)w * h * fps);
     int min_level_idx = 0;
     for (int i = 0 ; i < MAX_LEVEL_NUM ; i++) {
-        if (luma_sample_rate < max_luma_sample_rate[i]) {
+        if (luma_sample_rate <= max_luma_sample_rate[i]) {
             min_level_idx = i;
             break;
         }
@@ -400,7 +400,7 @@ static int enc_update_param_level(oapve_param_t* param)
 
     if (param->bitrate > 0) {
         for (int i = min_level_idx; i < MAX_LEVEL_NUM; i++) {
-            if (param->bitrate < max_coded_data_rate[i][param->band_idc]) {
+            if (param->bitrate <= max_coded_data_rate[i][param->band_idc]) {
                 min_level_idx = i;
                 break;
             }
