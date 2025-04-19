@@ -71,7 +71,7 @@ The APV codec standard has the following features:
   - Executable applications can be found under build*/bin/
   - Library files can be found under build*/lib/
 
-## How to use
+## How to use applications
 ### Encoder
 
 Encoder as input require raw YCbCr file (422, 444), 10-bit or more.

@@ -70,11 +70,11 @@ static const args_opt_t enc_args_opts[] = {
         "file name of reconstructed video"
     },
     {
-        'w',  "width", ARGS_VAL_TYPE_STRING | ARGS_VAL_TYPE_MANDATORY, 0, NULL,
+        'w',  "width", ARGS_VAL_TYPE_STRING, 0, NULL,
         "pixel width of input video"
     },
     {
-        'h',  "height", ARGS_VAL_TYPE_STRING | ARGS_VAL_TYPE_MANDATORY, 0, NULL,
+        'h',  "height", ARGS_VAL_TYPE_STRING, 0, NULL,
         "pixel height of input video"
     },
     {
@@ -85,7 +85,7 @@ static const args_opt_t enc_args_opts[] = {
         "      - 'auto' means that the value is internally determined"
     },
     {
-        'z',  "fps", ARGS_VAL_TYPE_STRING | ARGS_VAL_TYPE_MANDATORY, 0, NULL,
+        'z',  "fps", ARGS_VAL_TYPE_STRING, 0, NULL,
         "frame rate (frame per second))"
     },
     {
@@ -203,7 +203,7 @@ typedef struct args_var {
 
     char           width[16];
     char           height[16];
-    char           fps[256];
+    char           fps[16];
 
     char           qp[16];
     char           qp_offset_c1[16];
@@ -679,6 +679,17 @@ int main(int argc, const char **argv)
             (args_var->input_csp == 4 ? OAPV_CF_YCBCR4444 : \
             (args_var->input_csp == 5 ? OAPV_CF_PLANAR2   : OAPV_CF_UNKNOWN))))));
         // clang-format on
+
+        // check mandatory parameters for YUV raw file.
+        if(strlen(args_var->width) == 0) {
+            logerr("'--width' argument is required\n"); ret = -1; goto ERR;
+        }
+        if(strlen(args_var->height) == 0) {
+            logerr("'--height' argument is required\n"); ret = -1; goto ERR;
+        }
+        if(strlen(args_var->fps) == 0) {
+            logerr("'--fps' argument is required\n"); ret = -1; goto ERR;
+        }
     }
     if(args_var->input_csp == -1) {
         logerr("Unknown input color space. set '--input-csp' argument\n");

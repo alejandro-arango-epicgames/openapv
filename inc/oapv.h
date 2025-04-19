@@ -408,7 +408,9 @@ static const oapv_dict_str_int_t oapv_param_opts_preset[] = {
 
 static const oapv_dict_str_int_t oapv_param_opts_color_range[] = {
     {"limited", 0},
+    {"tv",      0}, // alternative value of "limited"
     {"full",    1},
+    {"pc",      1}, // alternative value of "full"
     {"", 0} // termination
 };
 
