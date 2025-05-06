@@ -200,3 +200,23 @@ else {
 ~~~~
 
 tile_index for sub-samples based on tiles, this parameter indicates the tile index in raster order in a frame.
+
+# Sub-parameters for the MIME tyype 'codecs' parameter
+
+When the 'codecs' parameter of a MIME type is used for a track containing  APV bistream, as defined in IETF RFC 6381, the sub-parameters defined in this section is used. 
+
+The 'codecs' parameter string for the APV bitstream is defined as follows:
+
+~~~
+<4CC value of sample entry>.<key1><value1>.<key2><value2>.¡¦.<keyN><valueN>
+~~~
+
+The keys are defined as 4CC values and the value used for each keys are defined in the table below.
+
+|Key|Meaning|Value|
+|:-:|:-:|:-:|
+|'apvf'| profile | the largest value of the profile_idc in APVDecoderConfigurationRecord |
+|'apvl'| level | the largest value of the level_idc in APVDecoderConfigurationRecord |
+|'apvb'| band | the largest value of the band_idc in APVDecoderConfigurationRecord |
+
+For example, codecs="apv1.apvf44.apvl210.apvb3" indicates the track is compliant to 'apv1' sample entry type and the largest value of the profile in APVDecoderConfigurationRecord of the track is 422-12 profile, the level is 7 and the band is 3. 
