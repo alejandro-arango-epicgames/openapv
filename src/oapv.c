@@ -1318,7 +1318,7 @@ int oapve_encode(oapve_t eid, oapv_frms_t *ifrms, oapvm_t mid, oapv_bitb_t *bitb
         ret = enc_read_param(ctx, ctx->param);
         oapv_assert_rv(ret == OAPV_OK, ret);
 
-        oapv_assert_rv(ctx->param->profile_idc == OAPV_PROFILE_422_10, OAPV_ERR_UNSUPPORTED);
+        oapv_assert_rv(ctx->param->profile_idc == OAPV_PROFILE_422_10 || ctx->param->profile_idc == OAPV_PROFILE_400_10, OAPV_ERR_UNSUPPORTED);
 
         // prepare for encoding a frame
         ret = enc_frm_prepare(ctx, frm->imgb, (rfrms != NULL) ? rfrms->frm[i].imgb : NULL);

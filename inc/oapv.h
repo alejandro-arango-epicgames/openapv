@@ -197,6 +197,7 @@ extern "C" {
  * profiles
  *****************************************************************************/
 #define OAPV_PROFILE_422_10             (33)
+#define OAPV_PROFILE_400_10             (99)
 
 /*****************************************************************************
  * optimization level control
@@ -393,7 +394,8 @@ struct oapv_dict_str_int {
 };
 
 static const oapv_dict_str_int_t oapv_param_opts_profile[] = {
-    {"422-10",  OAPV_PROFILE_422_10},
+    {"422-10", OAPV_PROFILE_422_10},
+    {"400-10", OAPV_PROFILE_400_10},
     {"", 0} // termination
 };
 
@@ -532,7 +534,6 @@ struct oapve_param {
     int           full_range_flag;
 };
 
-#define OAPV_CDESC_THREADS_AUTO          0
 /*****************************************************************************
  * automatic assignment of number of threads in creation of encoder & decoder
  *****************************************************************************/
