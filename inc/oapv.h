@@ -152,6 +152,7 @@ extern "C" {
 #define OAPV_CFG_SET_QP_MIN             (208)
 #define OAPV_CFG_SET_QP_MAX             (209)
 #define OAPV_CFG_SET_USE_FRM_HASH       (301)
+#define OAPV_CFG_SET_AU_BS_FMT          (302)
 #define OAPV_CFG_GET_QP_MIN             (600)
 #define OAPV_CFG_GET_QP_MAX             (601)
 #define OAPV_CFG_GET_QP                 (602)
@@ -161,6 +162,15 @@ extern "C" {
 #define OAPV_CFG_GET_FPS_DEN            (606)
 #define OAPV_CFG_GET_WIDTH              (701)
 #define OAPV_CFG_GET_HEIGHT             (702)
+#define OAPV_CFG_GET_AU_BS_FMT          (802)
+
+/*****************************************************************************
+ * config values
+ *****************************************************************************/
+/* The output from the encoder is compliant with raw_bitstream_access_unit */
+#define OAPV_CFG_VAL_AU_BS_FMT_RBAU     (0)
+/* The output from the encoder is the only AU without bitstream format */
+#define OAPV_CFG_VAL_AU_BS_FMT_NONE     (1)
 
 /*****************************************************************************
  * HLS configs

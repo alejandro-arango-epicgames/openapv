@@ -311,6 +311,7 @@ struct oapve_ctx {
     oapve_rc_param_t          rc_param;
 
     int                       threads; // num of thread for encoding
+    int                       au_bs_fmt; // access unit bitstream format
     /* platform specific data, if needed */
     void                     *pf;
 };
