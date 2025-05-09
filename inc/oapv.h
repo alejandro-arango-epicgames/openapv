@@ -135,8 +135,9 @@ extern "C" {
 #define OAPV_CS_YCBCR4444_10LE          OAPV_CS_SET(OAPV_CF_YCBCR4444, 10, 0)
 #define OAPV_CS_YCBCR400_12LE           OAPV_CS_SET(OAPV_CF_YCBCR400, 12, 0)
 #define OAPV_CS_YCBCR420_12LE           OAPV_CS_SET(OAPV_CF_YCBCR420, 12, 0)
-#define OAPV_CS_YCBCR400_14LE           OAPV_CS_SET(OAPV_CF_YCBCR400, 14, 0)
-#define OAPV_CS_YCBCR420_14LE           OAPV_CS_SET(OAPV_CF_YCBCR420, 14, 0)
+#define OAPV_CS_YCBCR422_12LE           OAPV_CS_SET(OAPV_CF_YCBCR422, 12, 0)
+#define OAPV_CS_YCBCR444_12LE           OAPV_CS_SET(OAPV_CF_YCBCR444, 12, 0)
+#define OAPV_CS_YCBCR4444_12LE          OAPV_CS_SET(OAPV_CF_YCBCR4444, 12, 0)
 #define OAPV_CS_P210                    OAPV_CS_SET(OAPV_CF_PLANAR2, 10, 0)
 
 /* max number of color channel: ex) YCbCr4444 -> 4 channels */
@@ -207,6 +208,7 @@ extern "C" {
  * profiles
  *****************************************************************************/
 #define OAPV_PROFILE_422_10             (33)
+#define OAPV_PROFILE_422_12             (44)
 #define OAPV_PROFILE_400_10             (99)
 
 /*****************************************************************************
@@ -406,6 +408,7 @@ struct oapv_dict_str_int {
 static const oapv_dict_str_int_t oapv_param_opts_profile[] = {
     {"422-10", OAPV_PROFILE_422_10},
     {"400-10", OAPV_PROFILE_400_10},
+    {"422-12", OAPV_PROFILE_422_12},
     {"", 0} // termination
 };
 

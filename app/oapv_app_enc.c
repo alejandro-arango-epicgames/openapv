@@ -113,7 +113,12 @@ static const args_opt_t enc_args_opts[] = {
     },
     {
         ARGS_NO_KEY,  "profile", ARGS_VAL_TYPE_STRING, 0, NULL,
-        "profile string (422-10, 400-10)"
+        "profile string\n"
+        "      - 422-10: YCbCr422 10bit (default)\n"
+        "      - 422-12; YCbCr422 12bit\n"
+        "      - 400-10: YCbCr400 (monochrome) 10bit\n"
+        "      Note: Color space and bit depth of input video will be converted\n"
+        "            automatically to support the given profile, if needs"
     },
     {
         ARGS_NO_KEY,  "level", ARGS_VAL_TYPE_STRING, 0, NULL,
@@ -155,7 +160,7 @@ static const args_opt_t enc_args_opts[] = {
     {
         ARGS_NO_KEY,  "bitrate", ARGS_VAL_TYPE_STRING, 0, NULL,
         "enable ABR rate control\n"
-        "      bitrate in terms of kilo-bits per second: Kbps(none,K,k), Mbps(M,m)\n"
+        "      bitrate in terms of kbits per second: Kbps(none,K,k), Mbps(M,m)\n"
         "      ex) 100 = 100K = 0.1M"
     },
     {
@@ -792,22 +797,41 @@ int main(int argc, const char **argv)
     memset(&ifrms, 0, sizeof(oapv_frm_t));
     memset(&rfrms, 0, sizeof(oapv_frm_t));
 
+    int codec_depth = (param->profile_idc == OAPV_PROFILE_422_10 || param->profile_idc == OAPV_PROFILE_400_10) ? 10 :
+                       param->profile_idc == OAPV_PROFILE_422_12 ? 12 : 0;
+    if (codec_depth == 0) {
+        logerr("invalid profile\n");
+        ret = -1;
+        goto ERR;
+    }
+
     for(int i = 0; i < num_frames; i++) {
-        if(args_var->input_depth == 10) {
+        if(args_var->input_depth == codec_depth) {
             ifrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, args_var->input_depth, 0));
         }
         else {
-            imgb_r = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, args_var->input_depth, 0));
-            ifrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, 10, 0));
+            if (cfmt == OAPV_CF_PLANAR2) {
+                ifrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, codec_depth, 0));
+            }
+            else {
+                imgb_r = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, args_var->input_depth, 0));
+                ifrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, codec_depth, 0));
+            }
         }
 
         if(is_rec) {
-            if(args_var->input_depth == 10) {
+            if(args_var->input_depth == codec_depth) {
                 rfrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, args_var->input_depth, 0));
             }
             else {
-                imgb_w = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, args_var->input_depth, 0));
-                rfrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, 10, 0));
+                if (cfmt == OAPV_CF_PLANAR2) {
+                    rfrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, codec_depth, 0));
+                }
+                else
+                {
+                    imgb_w = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, args_var->input_depth, 0));
+                    rfrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, codec_depth, 0));
+                }
             }
             rfrms.num_frms++;
         }
@@ -817,7 +841,7 @@ int main(int argc, const char **argv)
     /* encode pictures *******************************************************/
     while(args_var->max_au == 0 || (au_cnt < args_var->max_au)) {
         for(int i = 0; i < num_frames; i++) {
-            if(args_var->input_depth == 10) {
+            if(args_var->input_depth == codec_depth || cfmt == OAPV_CF_PLANAR2) {
                 imgb_i = ifrms.frm[i].imgb;
             }
             else {
@@ -830,7 +854,7 @@ int main(int argc, const char **argv)
                 state = STATE_STOP;
                 break;
             }
-            if(args_var->input_depth != 10) {
+            if(args_var->input_depth != codec_depth && cfmt != OAPV_CF_PLANAR2) {
                 imgb_cpy(ifrms.frm[i].imgb, imgb_i);
             }
             ifrms.frm[i].group_id = 1; // FIX-ME : need to set properly in case of multi-frame
@@ -852,7 +876,7 @@ int main(int argc, const char **argv)
 
             for(int fidx = 0; fidx < num_frames; fidx++) {
                 if(is_rec) {
-                    if(args_var->input_depth != 10) {
+                    if(args_var->input_depth != codec_depth && cfmt != OAPV_CF_PLANAR2) {
                         imgb_cpy(imgb_w, rfrms.frm[fidx].imgb);
                         imgb_o = imgb_w;
                     }

@@ -31,11 +31,11 @@
 
 #include "oapv_def.h"
 
-static void imgb_to_block(oapv_imgb_t *imgb, int c, int x_l, int y_l, int w_l, int h_l, s16 *block)
+static void imgb_to_block(oapv_imgb_t *imgb, int c, int x_l, int y_l, int w_l, int h_l, s16 *blk, int bd)
 {
     u8 *src, *dst;
     int i, sft_hor, sft_ver;
-    int bd = OAPV_CS_GET_BYTE_DEPTH(imgb->cs);
+    int byte_depth = (bd + 7) >> 3;
 
     if(c == 0) {
         sft_hor = sft_ver = 0;
@@ -46,20 +46,20 @@ static void imgb_to_block(oapv_imgb_t *imgb, int c, int x_l, int y_l, int w_l, i
         sft_ver = get_chroma_sft_h(cfi);
     }
 
-    src = ((u8 *)imgb->a[c]) + ((y_l >> sft_ver) * imgb->s[c]) + ((x_l * bd) >> sft_hor);
-    dst = (u8 *)block;
+    src = ((u8 *)imgb->a[c]) + ((y_l >> sft_ver) * imgb->s[c]) + ((x_l * byte_depth) >> sft_hor);
+    dst = (u8 *)blk;
 
     for(i = 0; i < (h_l); i++) {
-        oapv_mcpy(dst, src, (w_l)*bd);
+        oapv_mcpy(dst, src, (w_l) * byte_depth);
 
         src += imgb->s[c];
-        dst += (w_l)*bd;
+        dst += (w_l) * byte_depth;
     }
 }
 
-static void imgb_to_block_10bit(void *src, int blk_w, int blk_h, int s_src, int offset_src, int s_dst, void *dst)
+static void imgb_to_block_16(void *src, int blk_w, int blk_h, int s_src, int offset_src, int s_dst, void *dst, int bd)
 {
-    const int mid_val = (1 << (10 - 1));
+    const int mid_val = (1 << (bd - 1));
     s16      *s = (s16 *)src;
     s16      *d = (s16 *)dst;
 
@@ -72,43 +72,45 @@ static void imgb_to_block_10bit(void *src, int blk_w, int blk_h, int s_src, int 
     }
 }
 
-static void imgb_to_block_p210_y(void *src, int blk_w, int blk_h, int s_src, int offset_src, int s_dst, void *dst)
+static void imgb_to_block_p21x_y(void *src, int blk_w, int blk_h, int s_src, int offset_src, int s_dst, void *dst, int bd)
 {
-    const int mid_val = (1 << (10 - 1));
+    const int mid_val = (1 << (bd - 1));
     u16      *s = (s16 *)src;
     s16      *d = (s16 *)dst;
+    int       shift_pic_bits = 16 - bd;
 
     for(int h = 0; h < blk_h; h++) {
         for(int w = 0; w < blk_w; w++) {
-            d[w] = (s16)(s[w] >> 6) - mid_val;
+            d[w] = (s16)(s[w] >> shift_pic_bits) - mid_val;
         }
         s = (u16 *)(((u8 *)s) + s_src);
         d = (s16 *)(((u8 *)d) + s_dst);
     }
 }
 
-static void imgb_to_block_p210_uv(void *src, int blk_w, int blk_h, int s_src, int offset_src, int s_dst, void *dst)
+static void imgb_to_block_p21x_uv(void *src, int blk_w, int blk_h, int s_src, int offset_src, int s_dst, void *dst, int bd)
 {
-    const int mid_val = (1 << (10 - 1));
+    const int mid_val = (1 << (bd - 1));
     u16      *s = (u16 *)src + offset_src;
     s16      *d = (s16 *)dst;
+    int       shift_pic_bits = 16 - bd;
 
     for(int h = 0; h < blk_h; h++) {
         for(int w = 0; w < blk_w; w++) {
-            d[w] = (s16)(s[w * 2] >> 6) - mid_val;
+            d[w] = (s16)(s[w * 2] >> shift_pic_bits) - mid_val;
         }
         s = (u16 *)(((u8 *)s) + s_src);
         d = (s16 *)(((u8 *)d) + s_dst);
     }
 }
 
-static void imgb_to_block_p210(oapv_imgb_t *imgb, int c, int x_l, int y_l, int w_l, int h_l, s16 *block)
+static void imgb_to_block_p21x(oapv_imgb_t *imgb, int c, int x_l, int y_l, int w_l, int h_l, s16 *block, int bd)
 {
     u16 *src, *dst;
     int  sft_hor, sft_ver, s_src;
-    int  bd = OAPV_CS_GET_BYTE_DEPTH(imgb->cs);
     int  size_scale = 1;
     int  tc = c;
+    int  shift_pic_bits = 16 - bd;
 
     if(c == 0) {
         sft_hor = sft_ver = 0;
@@ -127,17 +129,17 @@ static void imgb_to_block_p210(oapv_imgb_t *imgb, int c, int x_l, int y_l, int w
 
     for(int i = 0; i < (h_l); i++) {
         for(int j = 0; j < (w_l); j++) {
-            dst[j] = (src[j * size_scale + (c >> 1)] >> 6);
+            dst[j] = (src[j * size_scale + (c >> 1)] >> shift_pic_bits);
         }
         src += s_src;
         dst += w_l;
     }
 }
 
-static void block_to_imgb_10bit(void *src, int blk_w, int blk_h, int s_src, int offset_dst, int s_dst, void *dst)
+static void block_to_imgb_16(void *src, int blk_w, int blk_h, int s_src, int offset_dst, int s_dst, void *dst, int bd)
 {
-    const int max_val = (1 << 10) - 1;
-    const int mid_val = (1 << (10 - 1));
+    const int max_val = (1 << bd) - 1;
+    const int mid_val = (1 << (bd - 1));
     s16      *s = (s16 *)src;
     u16      *d = (u16 *)dst;
 
@@ -150,27 +152,29 @@ static void block_to_imgb_10bit(void *src, int blk_w, int blk_h, int s_src, int 
     }
 }
 
-static void block_to_imgb_p210_y(void *src, int blk_w, int blk_h, int s_src, int offset_dst, int s_dst, void *dst)
+static void block_to_imgb_p21x_y(void *src, int blk_w, int blk_h, int s_src, int offset_dst, int s_dst, void *dst, int bd)
 {
-    const int max_val = (1 << 10) - 1;
-    const int mid_val = (1 << (10 - 1));
+    const int max_val = (1 << bd) - 1;
+    const int mid_val = (1 << (bd - 1));
     s16      *s = (s16 *)src;
     u16      *d = (u16 *)dst;
+    int       shift_pic_bits = 16 - bd;
 
     for(int h = 0; h < blk_h; h++) {
         for(int w = 0; w < blk_w; w++) {
-            d[w] = oapv_clip3(0, max_val, s[w] + mid_val) << 6;
+            d[w] = oapv_clip3(0, max_val, s[w] + mid_val) << shift_pic_bits;
         }
         s = (s16 *)(((u8 *)s) + s_src);
         d = (u16 *)(((u8 *)d) + s_dst);
     }
 }
 
-static void block_to_imgb_p210_uv(void *src, int blk_w, int blk_h, int s_src, int x_pel, int s_dst, void *dst)
+static void block_to_imgb_p21x_uv(void *src, int blk_w, int blk_h, int s_src, int x_pel, int s_dst, void *dst, int bd)
 {
-    const int max_val = (1 << 10) - 1;
-    const int mid_val = (1 << (10 - 1));
+    const int max_val = (1 << bd) - 1;
+    const int mid_val = (1 << (bd - 1));
     s16      *s = (s16 *)src;
+    int       shift_pic_bits = 16 - bd;
 
     // x_pel is x-offset value from left boundary of picture in unit of pixel.
     // the 'dst' address has calculated by
@@ -187,7 +191,7 @@ static void block_to_imgb_p210_uv(void *src, int blk_w, int blk_h, int s_src, in
 
     for(int h = 0; h < blk_h; h++) {
         for(int w = 0; w < blk_w; w++) {
-            d[w * 2] = ((u16)oapv_clip3(0, max_val, s[w] + mid_val)) << 6;
+            d[w * 2] = ((u16)oapv_clip3(0, max_val, s[w] + mid_val)) << shift_pic_bits;
         }
         s = (s16 *)(((u8 *)s) + s_src);
         d = (u16 *)(((u8 *)d) + s_dst);
@@ -781,7 +785,7 @@ static int enc_tile_comp(oapv_bs_t *bs, oapve_tile_t *tile, oapve_ctx_t *ctx, oa
             for(blk_y = mb_y; blk_y < (mb_y + mb_h); blk_y += OAPV_BLK_H) {
                 for(blk_x = mb_x; blk_x < (mb_x + mb_w); blk_x += OAPV_BLK_W) {
                     o16 = (s16 *)((u8 *)org + blk_y * s_org) + blk_x;
-                    ctx->fn_imgb_to_blk[c](o16, OAPV_BLK_W, OAPV_BLK_H, s_org, blk_x, (OAPV_BLK_W << 1), core->coef);
+                    ctx->fn_imgb_to_blk[c](o16, OAPV_BLK_W, OAPV_BLK_H, s_org, blk_x, (OAPV_BLK_W << 1), core->coef, ctx->bit_depth);
 
                     ctx->fn_enc_blk(ctx, core, OAPV_LOG2_BLK_W, OAPV_LOG2_BLK_H, c);
                     oapve_vlc_dc_coeff(ctx, core, bs, core->dc_diff, c);
@@ -790,7 +794,7 @@ static int enc_tile_comp(oapv_bs_t *bs, oapve_tile_t *tile, oapve_ctx_t *ctx, oa
 
                     if(rec != NULL) {
                         r16 = (s16 *)((u8 *)rec + blk_y * s_rec) + blk_x;
-                        ctx->fn_blk_to_imgb[c](core->coef_rec, OAPV_BLK_W, OAPV_BLK_H, (OAPV_BLK_W << 1), blk_x, s_rec, r16);
+                        ctx->fn_blk_to_imgb[c](core->coef_rec, OAPV_BLK_W, OAPV_BLK_H, (OAPV_BLK_W << 1), blk_x, s_rec, r16, ctx->bit_depth);
                     }
                 }
             }
@@ -1042,24 +1046,27 @@ static int enc_frm_prepare(oapve_ctx_t *ctx, oapv_imgb_t *imgb_i, oapv_imgb_t *i
     }
 
     ctx->bit_depth = OAPV_CS_GET_BIT_DEPTH(imgb_i->cs);
+    oapv_assert_rv((ctx->bit_depth == 10 && ctx->param->profile_idc == OAPV_PROFILE_422_10) ||
+                   (ctx->bit_depth == 10 && ctx->param->profile_idc == OAPV_PROFILE_400_10) ||
+                   (ctx->bit_depth == 12 && ctx->param->profile_idc == OAPV_PROFILE_422_12), OAPV_ERR_INVALID_ARGUMENT);
 
     if(OAPV_CS_GET_FORMAT(imgb_i->cs) == OAPV_CF_PLANAR2) {
-        ctx->fn_imgb_to_blk_rc = imgb_to_block_p210;
+        ctx->fn_imgb_to_blk_rc = imgb_to_block_p21x;
 
-        ctx->fn_imgb_to_blk[Y_C] = imgb_to_block_p210_y;
-        ctx->fn_imgb_to_blk[U_C] = imgb_to_block_p210_uv;
-        ctx->fn_imgb_to_blk[V_C] = imgb_to_block_p210_uv;
+        ctx->fn_imgb_to_blk[Y_C] = imgb_to_block_p21x_y;
+        ctx->fn_imgb_to_blk[U_C] = imgb_to_block_p21x_uv;
+        ctx->fn_imgb_to_blk[V_C] = imgb_to_block_p21x_uv;
 
-        ctx->fn_blk_to_imgb[Y_C] = block_to_imgb_p210_y;
-        ctx->fn_blk_to_imgb[U_C] = block_to_imgb_p210_uv;
-        ctx->fn_blk_to_imgb[V_C] = block_to_imgb_p210_uv;
+        ctx->fn_blk_to_imgb[Y_C] = block_to_imgb_p21x_y;
+        ctx->fn_blk_to_imgb[U_C] = block_to_imgb_p21x_uv;
+        ctx->fn_blk_to_imgb[V_C] = block_to_imgb_p21x_uv;
         ctx->fn_img_pad = enc_img_pad_p210;
     }
     else {
         ctx->fn_imgb_to_blk_rc = imgb_to_block;
         for(int i = 0; i < ctx->num_comp; i++) {
-            ctx->fn_imgb_to_blk[i] = imgb_to_block_10bit;
-            ctx->fn_blk_to_imgb[i] = block_to_imgb_10bit;
+            ctx->fn_imgb_to_blk[i] = imgb_to_block_16;
+            ctx->fn_blk_to_imgb[i] = block_to_imgb_16;
         }
         ctx->fn_img_pad = enc_img_pad;
     }
@@ -1319,8 +1326,9 @@ int oapve_encode(oapve_t eid, oapv_frms_t *ifrms, oapvm_t mid, oapv_bitb_t *bitb
         ctx->param = &ctx->cdesc.param[i];
         ret = enc_read_param(ctx, ctx->param);
         oapv_assert_rv(ret == OAPV_OK, ret);
-
-        oapv_assert_rv(ctx->param->profile_idc == OAPV_PROFILE_422_10, OAPV_ERR_UNSUPPORTED);
+        oapv_assert_rv(ctx->param->profile_idc == OAPV_PROFILE_422_10 ||
+                       ctx->param->profile_idc == OAPV_PROFILE_400_10 ||
+                       ctx->param->profile_idc == OAPV_PROFILE_422_12, OAPV_ERR_UNSUPPORTED);
 
         // prepare for encoding a frame
         ret = enc_frm_prepare(ctx, frm->imgb, (rfrms != NULL) ? rfrms->frm[i].imgb : NULL);
@@ -1578,13 +1586,13 @@ static int dec_frm_prepare(oapvd_ctx_t *ctx, oapv_imgb_t *imgb)
     ctx->h = oapv_align_value(ctx->fh.fi.frame_height, OAPV_MB_H);
 
     if(OAPV_CS_GET_FORMAT(imgb->cs) == OAPV_CF_PLANAR2) {
-        ctx->fn_block_to_imgb[Y_C] = block_to_imgb_p210_y;
-        ctx->fn_block_to_imgb[U_C] = block_to_imgb_p210_uv;
-        ctx->fn_block_to_imgb[V_C] = block_to_imgb_p210_uv;
+        ctx->fn_block_to_imgb[Y_C] = block_to_imgb_p21x_y;
+        ctx->fn_block_to_imgb[U_C] = block_to_imgb_p21x_uv;
+        ctx->fn_block_to_imgb[V_C] = block_to_imgb_p21x_uv;
     }
     else {
         for(int c = 0; c < ctx->num_comp; c++) {
-            ctx->fn_block_to_imgb[c] = block_to_imgb_10bit;
+            ctx->fn_block_to_imgb[c] = block_to_imgb_16;
         }
     }
 
@@ -1652,7 +1660,7 @@ static int dec_tile_comp(oapvd_tile_t *tile, oapvd_ctx_t *ctx, oapvd_core_t *cor
 
                     // copy decoded block to image buffer
                     d16 = (s16 *)((u8 *)dst + blk_y * s_dst) + blk_x;
-                    ctx->fn_block_to_imgb[c](core->coef, OAPV_BLK_W, OAPV_BLK_H, (OAPV_BLK_W << 1), blk_x, s_dst, d16);
+                    ctx->fn_block_to_imgb[c](core->coef, OAPV_BLK_W, OAPV_BLK_H, (OAPV_BLK_W << 1), blk_x, s_dst, d16, ctx->bit_depth);
                 }
             }
         }
