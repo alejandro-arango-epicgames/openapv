@@ -476,6 +476,9 @@ int oapve_param_update(oapve_ctx_t* ctx)
     int ret = OAPV_OK;
     int min_num_tiles = OAPV_MAX_TILES;
     for (int i = 0; i < ctx->cdesc.max_num_frms; i++) {
+        if(ctx->cdesc.param[i].csp == 2 && ctx->cdesc.param[i].w & 0x1) { // check width restriction for 422
+            return OAPV_ERR_INVALID_WIDTH; // odd width is not spec-out
+        }
         ret = enc_update_param_tile(ctx, &ctx->cdesc.param[i]);
         oapv_assert_rv(ret == OAPV_OK, ret);
         int num_tiles = oapv_div_round_up(ctx->w, ctx->cdesc.param[i].tile_w) * oapv_div_round_up(ctx->h, ctx->cdesc.param[i].tile_h);

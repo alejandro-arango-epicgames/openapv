@@ -85,8 +85,9 @@ extern "C" {
 #define OAPV_ERR_MALFORMED_BITSTREAM    (-202)
 #define OAPV_ERR_OUT_OF_BS_BUF          (-203) /* too small bitstream buffer */
 #define OAPV_ERR_NOT_FOUND              (-204)
-#define OAPV_ERR_FAILED_SYSCALL         (-301)   /* failed system call */
+#define OAPV_ERR_FAILED_SYSCALL         (-301) /* failed system call */
 #define OAPV_ERR_INVALID_LEVEL          (-401)
+#define OAPV_ERR_INVALID_WIDTH          (-405) /* invalid width (like odd) */
 #define OAPV_ERR_UNKNOWN                (-32767) /* unknown error */
 
 /* return value checking */

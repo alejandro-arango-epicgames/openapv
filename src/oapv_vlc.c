@@ -702,7 +702,7 @@ int oapvd_vlc_frame_info(oapv_bs_t *bs, oapv_fi_t *fi)
     // check frame width in case of 422 format.
     if(fi->chroma_format_idc == 2) {
         // frame_width should be multiple of 2
-        oapv_assert_rv((fi->frame_width & 0x1) == 0, OAPV_ERR_MALFORMED_BITSTREAM);
+        oapv_assert_rv((fi->frame_width & 0x1) == 0, OAPV_ERR_INVALID_WIDTH);
     }
 
     return OAPV_OK;
