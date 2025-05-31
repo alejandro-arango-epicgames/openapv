@@ -117,6 +117,11 @@ In build directory run ``ctest``
 
 For generating package ready for distribution (default deb) execute in build directory ``cpack``,  or other formats (tgz, zip etc.) ``cpack -G TGZ``.
 
+## Versioning
+
+This project is using folowing veersioning scheme ``API_SET.MAJOR.MINOR.PATCH.``. It's mostly based on Semantic Versioning with addition of API_SET on first place.
+Project and library is following one common version number.
+
 ## License
 
 See [LICENSE](LICENSE) file for details.
