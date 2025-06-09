@@ -52,7 +52,7 @@ const s32 oapv_coeff[8][4] =
     high = vmulq_s32(part2, coeff); \
     res = vcombine_s32(vpadd_s32(vget_low_s32(low), vget_high_s32(low)), vpadd_s32(vget_low_s32(high), vget_high_s32(high))); \
 
-static void oapv_tx_pb8b_neon(s16 *src, s16 *dst, const int shift, int line)
+static void oapv_tx_pb8b_part_neon(s16 *src, s16 *dst, const int shift, int line)
 {
     s16 i;
     s16 *tempSrc = src;
@@ -184,6 +184,13 @@ static void oapv_tx_pb8b_neon(s16 *src, s16 *dst, const int shift, int line)
         vst1_s16(dst + 4 * line + i, vmovn_s32(result4));
         vst1_s16(dst + 6 * line + i, vmovn_s32(result6));
     }
+}
+
+static void oapv_tx_pb8b_neon(s16 *src, const int shift1, const int shift2, int line)
+{
+    ALIGNED_16(s16 dst[OAPV_BLK_D]);
+    oapv_tx_pb8b_part_neon(src, dst, shift1, line);
+    oapv_tx_pb8b_part_neon(dst, src, shift2, line);
 }
 
 const oapv_fn_tx_t oapv_tbl_fn_txb_neon[2] =

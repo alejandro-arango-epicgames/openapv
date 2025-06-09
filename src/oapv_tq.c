@@ -70,8 +70,15 @@ static void oapv_tx_part(s16 *src, s16 *dst, int shift, int line)
     }
 }
 
+static void oapv_tx(s16 *src, int shift1, int shift2, int line)
+{
+    ALIGNED_16(s16 dst[OAPV_BLK_D]);
+    oapv_tx_part(src, dst, shift1, line);
+    oapv_tx_part(dst, src, shift2, line);
+}
+
 const oapv_fn_tx_t oapv_tbl_fn_tx[2] = {
-    oapv_tx_part,
+    oapv_tx,
     NULL
 };
 
@@ -90,9 +97,7 @@ void oapv_trans(oapve_ctx_t *ctx, s16 *coef, int log2_w, int log2_h, int bit_dep
     int shift1 = get_transform_shift(log2_w, 0, bit_depth);
     int shift2 = get_transform_shift(log2_h, 1, bit_depth);
 
-    ALIGNED_16(s16 tb[OAPV_BLK_D]);
-    (ctx->fn_txb)[0](coef, tb, shift1, 1 << log2_h);
-    (ctx->fn_txb)[0](tb, coef, shift2, 1 << log2_w);
+    (ctx->fn_txb)[0](coef, shift1, shift2, 1 << log2_h);
 }
 
 static int oapv_quant(s16 *coef, u8 qp, int q_matrix[OAPV_BLK_D], int log2_w, int log2_h, int bit_depth, int deadzone_offset)
