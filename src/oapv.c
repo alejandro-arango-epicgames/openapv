@@ -2153,10 +2153,15 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
 #endif // ENABLE_DECODER
 ///////////////////////////////////////////////////////////////////////////////
 
-const char *oapv_version(void)
+unsigned int oapv_version(char *ver, int size)
 {
-    static char oapv_version_string[16];
-    snprintf(oapv_version_string, sizeof(oapv_version_string), "%d.%d.%d.%d",
-        OAPV_VER_APISET, OAPV_VER_MAJOR, OAPV_VER_MINOR, OAPV_VER_PATCH);
-    return (char*)oapv_version_string;
+    if(ver != NULL) {
+        int written = snprintf(ver, size, "%d.%d.%d.%d",
+            OAPV_VER_APISET, OAPV_VER_MAJOR, OAPV_VER_MINOR, OAPV_VER_PATCH);
+        // check if snprintf encountered an error or if the output was truncated.
+        if (written < 0 || written >= size) {
+            return OAPV_ERR_INVALID_ARGUMENT;
+        }
+    }
+    return OAPV_VER_NUM;
 }

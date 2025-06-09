@@ -598,8 +598,11 @@ int main(int argc, const char **argv)
     const int      num_frames = MAX_NUM_FRMS; // number of frames in an access unit
 
     // print logo
+    char version[16];
+    oapv_version(version, sizeof(version));
+
     logv2("  ____                ___   ___ _   __\n");
-    logv2(" / __ \\___  ___ ___  / _ | / _ \\ | / / Encoder (v%s)\n", oapv_version());
+    logv2(" / __ \\___  ___ ___  / _ | / _ \\ | / / Encoder (v%s)\n", version);
     logv2("/ /_/ / _ \\/ -_) _ \\/ __ |/ ___/ |/ / \n");
     logv2("\\____/ .__/\\__/_//_/_/ |_/_/   |___/  \n");
     logv2("    /_/                               \n");
