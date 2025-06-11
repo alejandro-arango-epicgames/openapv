@@ -377,11 +377,8 @@ int main(int argc, const char **argv)
     memset(&ofrms, 0, sizeof(oapv_frms_t));
 
     // print logo
-    char version[16];
-    oapv_version(version, sizeof(version));
-
     logv2("  ____                ___   ___ _   __\n");
-    logv2(" / __ \\___  ___ ___  / _ | / _ \\ | / / Decoder (v%s)\n", version);
+    logv2(" / __ \\___  ___ ___  / _ | / _ \\ | / / Decoder (v%s)\n", oapv_version(NULL));
     logv2("/ /_/ / _ \\/ -_) _ \\/ __ |/ ___/ |/ / \n");
     logv2("\\____/ .__/\\__/_//_/_/ |_/_/   |___/  \n");
     logv2("    /_/                               \n");
