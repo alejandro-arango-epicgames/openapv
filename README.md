@@ -1,4 +1,4 @@
-![OAPV](/readme/img/oapv_logo_bar_256.png)
+![OAPV](/readme/img/oapv_logo_black_bar_256.png#gh-light-mode-only) ![OAPV](/readme/img/oapv_logo_white_bar_256.png#gh-dark-mode-only)
 # OpenAPV (Open Advanced Professional Video Codec)
 
 [![Build and test](https://github.com/AcademySoftwareFoundation/openapv/actions/workflows/build.yml/badge.svg)](https://github.com/AcademySoftwareFoundation/openapv/actions/workflows/build.yml)
@@ -119,7 +119,7 @@ For generating package ready for distribution (default deb) execute in build dir
 
 ## Versioning
 
-This project is using folowing veersioning scheme ``API_SET.MAJOR.MINOR.PATCH.``. It's mostly based on Semantic Versioning with addition of API_SET on first place.
+This project is using folowing versioning scheme ``API-SET.MAJOR.MINOR.PATCH``. It's mostly based on Semantic Versioning with addition of ``API-SET`` on first place.
 Project and library is following one common version number.
 
 ## License
@@ -127,5 +127,8 @@ Project and library is following one common version number.
 See [LICENSE](LICENSE) file for details.
 
 ## Graphic logo
-![OAPV](/readme/img/oapv_logo_bar_64.png) ![OAPV](/readme/img/oapv_logo_bar_128.png) ![OAPV](/readme/img/oapv_logo_bar_256.png)
-![OAPV](/readme/img/oapv_logo_btn_64.png) ![OAPV](/readme/img/oapv_logo_btn_96.png) ![OAPV](/readme/img/oapv_logo_btn_128.png)
+### logo for light mode
+![OAPV](/readme/img/oapv_logo_black_bar_64.png) ![OAPV](/readme/img/oapv_logo_black_bar_128.png) ![OAPV](/readme/img/oapv_logo_black_bar_256.png)
+
+### logo for dark mode
+![OAPV](/readme/img/oapv_logo_white_bar_64.png) ![OAPV](/readme/img/oapv_logo_white_bar_128.png) ![OAPV](/readme/img/oapv_logo_white_bar_256.png)
