@@ -609,6 +609,109 @@ int oapve_vlc_metadata(oapv_md_t *md, oapv_bs_t *bs)
     return OAPV_OK;
 }
 
+
+static __inline int get_vlc_rate(int val, int k)
+{
+    if (val < 100 && k < 5)
+    {
+        return CODE_LUT_100[val][k][1];
+    }
+
+    int code_len = 0;
+    code_len++;
+    if (val < (1 << k))
+    {
+        code_len += k;
+    }
+    else
+    {
+        val -= (1 << k);
+        code_len++;
+        if (val < (1 << k))
+        {
+            code_len += k;
+        }
+        else
+        {
+            val -= (1 << k);
+            while (val >= (1 << k))
+            {
+                code_len++;
+                val -= (1 << k);
+                k++;
+            }
+            code_len += k + 1;
+        }
+    }
+
+    return code_len;
+}
+
+double oapve_vlc_get_level_cost(int coef, int k, double lambda)
+{
+    s32 rate = 0;
+    rate = get_vlc_rate(coef, k);
+    if (coef)
+        rate += 1; // sign
+    return (rate * lambda);
+}
+
+double oapve_vlc_get_run_cost(int run, int k, double lambda)
+{
+    s32 rate = 0;
+    rate = get_vlc_rate(run, k);
+    return (rate * lambda);
+}
+
+int oapve_vlc_get_coef_rate(oapve_core_t* core, s16* coef, int c)
+{
+    int rate = 0;
+    int rice_run = 0;
+    int prev_run = 0;
+
+    // DC
+    int level = oapv_abs32(coef[0] - core->prev_dc[c]);
+    int rice_level = oapv_abs32(core->prev_dc_ctx[c]) >> 1;
+    rice_level = oapv_clip3(OAPV_MIN_DC_LEVEL_CTX, OAPV_MAX_DC_LEVEL_CTX, rice_level);
+    rate += get_vlc_rate(level, rice_level);
+    if(level) {
+        rate++;
+    }
+
+    u32 num_coeff = OAPV_BLK_D, scan_pos, run = 0;
+    const u16* scanp = oapv_tbl_scan;
+
+    // AC
+    rice_level = oapv_abs32(core->prev_1st_ac_ctx[c]) >> 2;
+    for(scan_pos = 1; scan_pos < num_coeff; scan_pos++) {
+        int coef_cur = coef[scanp[scan_pos]];
+        if(coef_cur) {
+            level = oapv_abs16(coef_cur);
+            rice_run = oapv_min(prev_run >> 2, 2);
+            rice_level = oapv_clip3(OAPV_MIN_AC_LEVEL_CTX, OAPV_MAX_AC_LEVEL_CTX, rice_level);
+
+            rate += get_vlc_rate(run, rice_run);
+            rate += get_vlc_rate(level - 1, rice_level);
+            if(level) {
+                rate++;
+            }
+
+            prev_run = run;
+            run = 0;
+            rice_level = level >> 2;
+        }
+        else {
+            run++;
+        }
+    }
+    if(run != 0) {
+        rice_run = oapv_min(prev_run >> 2, 2);
+        rate += get_vlc_rate(run, rice_run);
+    }
+
+    return rate;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // end of encoder code
 #endif // ENABLE_ENCODER

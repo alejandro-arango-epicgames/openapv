@@ -45,6 +45,8 @@ extern const int             oapv_quant_scale[6];
 
 void oapv_trans(oapve_ctx_t *ctx, s16 *coef, int log2_w, int log2_h, int bit_depth);
 void oapv_itx_get_wo_sft(s16 *src, s16 *dst, s32 *dst32, int shift, int line);
+void oapve_init_rdoq(oapve_core_t* core, int bit_depth, int ch_type);
+int  oapve_rdoq(oapve_core_t* core, s16* src_coef, s16* dst_coef, int log2_cuw, int log2_cuh, int ch_type, int bit_depth, double lambda);
 
 ///////////////////////////////////////////////////////////////////////////////
 // end of encoder code

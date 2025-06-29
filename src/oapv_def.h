@@ -234,6 +234,7 @@ struct oapve_core {
 
     int          q_mat_enc[N_C][OAPV_BLK_D];
     s16          q_mat_dec[N_C][OAPV_BLK_D];
+    double       err_scale_tbl[N_C][OAPV_BLK_D];
     int          thread_idx;
     /* platform specific data, if needed */
     void        *pf;

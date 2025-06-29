@@ -100,6 +100,181 @@ void oapv_trans(oapve_ctx_t *ctx, s16 *coef, int log2_w, int log2_h, int bit_dep
     (ctx->fn_txb)[0](coef, shift1, shift2, 1 << log2_h);
 }
 
+void oapve_init_rdoq(oapve_core_t * core, int bit_depth, int ch_type)
+{
+    double err_scale;
+
+    for(int cnt = 0; cnt < OAPV_BLK_D; cnt++) {
+        int q_value = core->q_mat_enc[ch_type][cnt];
+        int tr_shift = MAX_TX_DYNAMIC_RANGE - bit_depth - 3;
+        err_scale = (double)pow(2.0, -tr_shift);
+        err_scale = err_scale / q_value ;
+        core->err_scale_tbl[ch_type][cnt] = err_scale;
+    }
+}
+
+int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, int log2_cuh, int ch_type,  int bit_depth, double lambda)
+{
+    u8 qp = core->qp[ch_type];
+    const s32 tr_shift = MAX_TX_DYNAMIC_RANGE - bit_depth - 3;
+    const u32 max_num_coef = 1 << (log2_cuw + log2_cuh);
+    const u16 *scan = oapv_tbl_scan;
+    const int q_bits = QUANT_SHIFT + tr_shift + (qp / 6);
+    int nnz = 0;
+    u32 sum_all = 0;
+    u32 scan_pos;
+    u32 run = 0;
+    s32 rice_level = 0;
+    s32 rice_run = 0;
+    s32 prev_run = 0;
+    s32 prev_level = core->prev_1st_ac_ctx[ch_type];
+    s16 tmp_coef[OAPV_BLK_D];
+    s64 tmp_level_double[OAPV_BLK_D];
+    double best_cost = 0;
+    double uncoded_cost = 0;
+    double best_dist = 0;
+    double base_dist = 0;
+    double best_bit_cost = 0;
+    double base_bit_cost = 0;
+    double prev_run_bit_cost = 0;
+    double base_prev_run_bit_cost = 0;
+
+    /* ===== quantization ===== */
+    for(scan_pos = 0; scan_pos < max_num_coef; scan_pos++) {
+        u32 blk_pos = scan[scan_pos];
+        s64 level_double = src_coef[blk_pos];
+        s32 max_abs_level;
+        s64 temp_level;
+        double err;
+
+        temp_level = ((s64)oapv_abs(src_coef[blk_pos]) * core->q_mat_enc[ch_type][blk_pos]);
+        level_double = temp_level;
+        tmp_level_double[blk_pos] = level_double;
+        max_abs_level = (u32)oapv_min((temp_level >> q_bits), (1 << MAX_TX_DYNAMIC_RANGE) - 1);
+        max_abs_level++;
+        err = (double)level_double * core->err_scale_tbl[ch_type][blk_pos];
+        base_dist += err * err;
+        tmp_coef[blk_pos] = src_coef[blk_pos] >= 0 ? (s16)max_abs_level : -(s16)(max_abs_level);
+        sum_all += max_abs_level;
+    }
+
+    if(sum_all == 0) {
+        oapv_mset(dst_coef, 0, sizeof(s16)*max_num_coef);
+        return nnz;
+    }
+
+    rice_level = oapv_clip3(OAPV_MIN_DC_LEVEL_CTX, OAPV_MAX_DC_LEVEL_CTX, core->prev_dc_ctx[ch_type] >> 1);
+    rice_run = prev_run / 4;
+    if(rice_run > 2) {
+        rice_run = 2;
+    }
+    best_bit_cost = base_bit_cost = oapve_vlc_get_run_cost(63, 0, lambda) + oapve_vlc_get_level_cost(oapv_abs(core->prev_dc[ch_type]), rice_level, lambda);
+    best_dist = base_dist;
+    best_cost = best_dist + best_bit_cost;
+
+    //DC
+    {
+        u32 blk_pos = 0;
+        s32 org_level = tmp_coef[blk_pos];
+        s32 best_level = 0;
+        s32 tmp_level;
+        s32 max_level = org_level > 0 ? org_level : org_level + 1;
+        s32 min_level = org_level > 0 ? org_level - 1 : org_level;
+        double err1;
+
+        err1 = (double)tmp_level_double[blk_pos] * core->err_scale_tbl[ch_type][blk_pos];
+        uncoded_cost = err1 * err1;
+
+        rice_level = oapv_clip3(OAPV_MIN_DC_LEVEL_CTX, OAPV_MAX_DC_LEVEL_CTX, core->prev_dc_ctx[ch_type] >> 1);
+
+        for(tmp_level = max_level; tmp_level >= min_level; tmp_level--) {
+            if(tmp_level == 0) {
+                continue;
+            }
+            double delta = (double)(tmp_level_double[blk_pos]  - ((s64)oapv_abs(tmp_level) << q_bits));
+            double err = delta * core->err_scale_tbl[ch_type][blk_pos];
+            double curr_dist = best_dist - uncoded_cost + err * err;
+            double curr_run_bit_cost = oapve_vlc_get_run_cost(63, 0, lambda);
+            double curr_bit_cost = oapve_vlc_get_level_cost(oapv_abs(tmp_level - core->prev_dc[ch_type]), rice_level, lambda) + curr_run_bit_cost;
+            double curr_cost = curr_dist + curr_bit_cost;
+               
+            if(curr_cost < best_cost) {
+                best_level = tmp_level;
+                base_dist = curr_dist;
+                base_bit_cost = curr_bit_cost;
+                best_cost = curr_cost;
+                base_prev_run_bit_cost = curr_run_bit_cost;
+            }
+        }
+        dst_coef[blk_pos] = best_level;
+        best_dist = base_dist;
+        best_bit_cost = base_bit_cost;
+        prev_run_bit_cost = base_prev_run_bit_cost;
+    }
+
+    // RUN & AC
+    for(scan_pos = 1; scan_pos < max_num_coef; scan_pos++) {
+        u32 blk_pos = scan[scan_pos];
+        s32 org_level = tmp_coef[blk_pos];
+        s32 best_level = 0;
+        s32 tmp_level;
+        s32 max_level = org_level > 0 ? org_level : org_level + 1;
+        s32 min_level = org_level > 0 ? org_level - 1 : org_level;
+        double err1;
+
+        err1 = (double)tmp_level_double[blk_pos] * core->err_scale_tbl[ch_type][blk_pos];
+        uncoded_cost = err1 * err1;
+
+        rice_run = prev_run / 4;
+        if(rice_run > 2) {
+            rice_run = 2;
+        }
+        rice_level = prev_level >> 2;
+        if(rice_level > 4) {
+            rice_level = OAPV_MAX_AC_LEVEL_CTX;
+        }
+
+        for(tmp_level = max_level; tmp_level >= min_level; tmp_level--) {
+            if(tmp_level == 0) {
+                continue;
+            }
+            double delta = (double)(tmp_level_double[blk_pos] - ((s64)oapv_abs(tmp_level) << q_bits));
+            double err = delta * core->err_scale_tbl[ch_type][blk_pos];
+            double curr_dist = best_dist - uncoded_cost + err * err;
+            int rice_run_last = run / 4;
+            if(rice_run_last > 2) {
+                rice_run_last = 2;
+            }
+            double curr_run_bit_cost = blk_pos == 63 ? 0 : oapve_vlc_get_run_cost(63 - scan_pos, rice_run_last, lambda);
+            double curr_bit_cost = best_bit_cost - prev_run_bit_cost + oapve_vlc_get_run_cost(run, rice_run, lambda) + oapve_vlc_get_level_cost(abs(tmp_level) - 1, rice_level, lambda) + curr_run_bit_cost;
+            double curr_cost = curr_dist + curr_bit_cost;
+
+            if(curr_cost < best_cost) {
+                best_level = tmp_level;
+                base_dist = curr_dist;
+                base_bit_cost = curr_bit_cost;
+                best_cost = curr_cost;
+                base_prev_run_bit_cost = curr_run_bit_cost;
+            }
+        }
+        dst_coef[blk_pos] = best_level;
+        best_dist = base_dist;
+        best_bit_cost = base_bit_cost;
+        prev_run_bit_cost = base_prev_run_bit_cost;
+
+        if(dst_coef[blk_pos]) {
+            prev_run = run;
+            prev_level = abs(dst_coef[blk_pos]);
+            run = 0;
+            nnz++;
+        }
+        else {
+            run++;
+        }
+    }
+    return nnz;
+}
+
 static int oapv_quant(s16 *coef, u8 qp, int q_matrix[OAPV_BLK_D], int log2_w, int log2_h, int bit_depth, int deadzone_offset)
 {
     // coef is the output of the transform, the bit range is 16

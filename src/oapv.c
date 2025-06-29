@@ -334,102 +334,28 @@ static double enc_block(oapve_ctx_t *ctx, oapve_core_t *core, int log2_w, int lo
     return 0;
 }
 
-static double enc_block_rdo_slow(oapve_ctx_t *ctx, oapve_core_t *core, int log2_w, int log2_h, int c)
+static double enc_block_rdo_medium(oapve_ctx_t *ctx, oapve_core_t *core, int log2_w, int log2_h, int c)
 {
-    ALIGNED_16(s16 recon[OAPV_BLK_D]) = { 0 };
-    ALIGNED_16(s16 coeff[OAPV_BLK_D]) = { 0 };
-    int        blk_w = 1 << log2_w;
-    int        blk_h = 1 << log2_h;
-    int        bit_depth = ctx->bit_depth;
-    int        qp = core->qp[c];
-    s16        org[OAPV_BLK_D] = { 0 };
-    s16       *best_coeff = core->coef;
-    s16       *best_recon = core->coef_rec;
-    int        best_cost = INT_MAX;
-    int        zero_dist = 0;
-    const u16 *scanp = oapv_tbl_scan;
-    const int  map_idx_diff[15] = { 0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6, -7, 7 };
+    int bit_depth = ctx->bit_depth;
+    int qp = core->qp[c];
+    double lambda = 0.57 * pow(2.0, (qp - 12.0) / 3.0);
 
-    oapv_mcpy(org, core->coef, sizeof(s16) * OAPV_BLK_D);
     oapv_trans(ctx, core->coef, log2_w, log2_h, bit_depth);
-    oapv_mcpy(coeff, core->coef, sizeof(s16) * OAPV_BLK_D);
-    ctx->fn_quant[0](coeff, qp, core->q_mat_enc[c], log2_w, log2_h, bit_depth, c ? 112 : 212);
+    oapve_rdoq(core,core->coef, core->coef, log2_w, log2_h, c, bit_depth, lambda);
 
-    {
-        oapv_mcpy(recon, coeff, sizeof(s16) * OAPV_BLK_D);
-        ctx->fn_dquant[0](recon, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
-        ctx->fn_itx[0](recon, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
-        int cost = (int)ctx->fn_ssd[0](blk_w, blk_h, org, recon, blk_w, blk_w);
-        oapv_mcpy(best_coeff, coeff, sizeof(s16) * OAPV_BLK_D);
-        if(ctx->rec) {
-            oapv_mcpy(best_recon, recon, sizeof(s16) * OAPV_BLK_D);
-        }
-        if(cost == 0) {
-            zero_dist = 1;
-        }
-        best_cost = cost;
+    core->dc_diff = core->coef[0] - core->prev_dc[c];
+    core->prev_dc[c] = core->coef[0];
+
+    if(ctx->rec) {
+        oapv_mcpy(core->coef_rec, core->coef, sizeof(s16) * OAPV_BLK_D);
+        ctx->fn_dquant[0](core->coef_rec, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
+        ctx->fn_itx[0](core->coef_rec, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
     }
 
-    for(int itr = 0; itr < (c == 0 ? 2 : 1) && !zero_dist; itr++) {
-        for(int j = 0; j < OAPV_BLK_D && !zero_dist; j++) {
-            int best_idx = 0;
-            s16 org_coef = coeff[scanp[j]];
-            int adj_rng = c == 0 ? 13 : 5;
-            if(org_coef == 0) {
-                if(c == 0 && scanp[j] < 3) {
-                    adj_rng = 3;
-                }
-                else {
-                    continue;
-                }
-            }
-
-            for(int i = 1; i < adj_rng && !zero_dist; i++) {
-                if(i > 2) {
-                    if(best_idx == 0) {
-                        continue;
-                    }
-                    else if(best_idx % 2 == 1 && i % 2 == 0) {
-                        continue;
-                    }
-                    else if(best_idx % 2 == 0 && i % 2 == 1) {
-                        continue;
-                    }
-                }
-
-                s16 test_coef = org_coef + map_idx_diff[i];
-                coeff[scanp[j]] = test_coef;
-
-                oapv_mcpy(recon, coeff, sizeof(s16) * OAPV_BLK_D);
-                ctx->fn_dquant[0](recon, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
-                ctx->fn_itx[0](recon, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
-                int cost = (int)ctx->fn_ssd[0](blk_w, blk_h, org, recon, blk_w, blk_w);
-
-                if(cost < best_cost) {
-                    best_cost = cost;
-                    best_coeff[scanp[j]] = test_coef;
-                    if(ctx->rec) {
-                        oapv_mcpy(best_recon, recon, sizeof(s16) * OAPV_BLK_D);
-                    }
-                    best_idx = i;
-                    if(cost == 0) {
-                        zero_dist = 1;
-                    }
-                }
-                else {
-                    coeff[scanp[j]] = org_coef + map_idx_diff[best_idx];
-                }
-            }
-        }
-    }
-
-    core->dc_diff = best_coeff[0] - core->prev_dc[c];
-    core->prev_dc[c] = best_coeff[0];
-
-    return best_cost;
+    return 0;
 }
 
-static double enc_block_rdo_medium(oapve_ctx_t *ctx, oapve_core_t *core, int log2_w, int log2_h, int c)
+static double enc_block_rdo_slow(oapve_ctx_t *ctx, oapve_core_t *core, int log2_w, int log2_h, int c)
 {
     ALIGNED_16(s16 org[OAPV_BLK_D]);
     ALIGNED_16(s16 recon[OAPV_BLK_D]);
@@ -451,12 +377,12 @@ static double enc_block_rdo_medium(oapve_ctx_t *ctx, oapve_core_t *core, int log
     int        zero_dist = 0;
     const u16 *scanp = oapv_tbl_scan;
     const int  map_idx_diff[15] = { 0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6, -7, 7 };
+    double     lambda = 0.57 * pow(2.0, (qp - 12.0) / 3.0);
 
     oapv_mcpy(org, core->coef, sizeof(s16) * OAPV_BLK_D);
     oapv_trans(ctx, core->coef, log2_w, log2_h, bit_depth);
     oapv_mcpy(coeff, core->coef, sizeof(s16) * OAPV_BLK_D);
-
-    ctx->fn_quant[0](coeff, qp, core->q_mat_enc[c], log2_w, log2_h, bit_depth, c ? 112 : 212);
+    oapve_rdoq(core, coeff, coeff, log2_w, log2_h, c, bit_depth, lambda);
 
     {
         oapv_mcpy(recon, coeff, sizeof(s16) * OAPV_BLK_D);
@@ -546,94 +472,132 @@ static double enc_block_rdo_medium(oapve_ctx_t *ctx, oapve_core_t *core, int log
     return best_cost;
 }
 
-static double enc_block_rdo_placebo(oapve_ctx_t *ctx, oapve_core_t *core, int log2_w, int log2_h, int c)
+#define OAPV_FULL_RDO_MAX_CAND 6 
+
+typedef struct oapve_coef_info oapve_coef_info_t;
+struct oapve_coef_info
 {
-    int  blk_w = 1 << log2_w;
-    int  blk_h = 1 << log2_h;
-    int  bit_depth = ctx->bit_depth;
-    int  qp = core->qp[c];
-    s16 *best_coeff = core->coef;
-    s16 *best_recon = core->coef_rec;
+    int coef_pos;
+    int coef_org;
+    int coef_test;
+    double cost;
+};
+
+void add_coef_list(oapve_coef_info_t* coef_list, oapve_coef_info_t coef_cur, int* list_cnt)
+{
+    if((*list_cnt) == OAPV_FULL_RDO_MAX_CAND && coef_cur.cost > coef_list[OAPV_FULL_RDO_MAX_CAND - 1].cost) {
+        return;
+    }
+
+    int curr_pos = (*list_cnt) == OAPV_FULL_RDO_MAX_CAND ? OAPV_FULL_RDO_MAX_CAND - 1 : (*list_cnt);
+
+    coef_list[curr_pos] = coef_cur;
+
+    while(curr_pos > 0) {
+        if(coef_list[curr_pos].cost < coef_list[curr_pos - 1].cost) {
+            oapve_coef_info_t tmp = coef_list[curr_pos];
+            coef_list[curr_pos] = coef_list[curr_pos - 1];
+            coef_list[curr_pos - 1] = tmp;
+            curr_pos--;
+        }
+        else {
+            break;
+        }
+    }
+
+    if(*list_cnt < OAPV_FULL_RDO_MAX_CAND) {
+        (*list_cnt)++;
+    }
+}
+
+static double enc_block_rdo_placebo(oapve_ctx_t* ctx, oapve_core_t* core, int log2_w, int log2_h, int c)
+{
     ALIGNED_16(s16 org[OAPV_BLK_D]);
     ALIGNED_16(s16 recon[OAPV_BLK_D]);
     ALIGNED_16(s16 coeff[OAPV_BLK_D]);
-    int        best_cost = INT_MAX;
-    int        zero_dist = 0;
-    const u16 *scanp = oapv_tbl_scan;
-    const int  map_idx_diff[15] = { 0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6, -7, 7 };
+
+    int        blk_w = 1 << log2_w;
+    int        blk_h = 1 << log2_h;
+    int        bit_depth = ctx->bit_depth;
+    int        qp = core->qp[c];
+
+    s16* best_coeff = core->coef;
+    s16* best_recon = core->coef_rec;
+
+    double     best_cost = INT_MAX;
+    const u16* scanp = oapv_tbl_scan;
 
     oapv_mcpy(org, core->coef, sizeof(s16) * OAPV_BLK_D);
     oapv_trans(ctx, core->coef, log2_w, log2_h, bit_depth);
-    oapv_mcpy(coeff, core->coef, sizeof(s16) * OAPV_BLK_D);
+    ctx->fn_quant[0](core->coef, qp, core->q_mat_enc[c], log2_w, log2_h, bit_depth, c ? 128 : 128);
 
-    ctx->fn_quant[0](coeff, qp, core->q_mat_enc[c], log2_w, log2_h, bit_depth, c ? 112 : 212);
+    oapv_mcpy(recon, core->coef, sizeof(s16) * OAPV_BLK_D);
+    ctx->fn_dquant[0](recon, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
+    ctx->fn_itx[0](recon, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
+    best_cost = (int)ctx->fn_ssd[0](blk_w, blk_h, org, recon, blk_w, blk_w);
 
-    {
-        oapv_mcpy(recon, coeff, sizeof(s16) * OAPV_BLK_D);
-        ctx->fn_dquant[0](recon, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
-        ctx->fn_itx[0](recon, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
-        int cost = (int)ctx->fn_ssd[0](blk_w, blk_h, org, recon, blk_w, blk_w);
-        oapv_mcpy(best_coeff, coeff, sizeof(s16) * OAPV_BLK_D);
-        if(ctx->rec) {
-            oapv_mcpy(best_recon, recon, sizeof(s16) * OAPV_BLK_D);
-        }
-        if(cost == 0) {
-            zero_dist = 1;
-        }
-        best_cost = cost;
-    }
+    double lambda = (0.57 * pow(2.0, (core->qp[c] - 12) / 3.0));
+    int rate_org = oapve_vlc_get_coef_rate(core, core->coef, c);
+    best_cost += lambda * rate_org;
 
-    for(int itr = 0; itr < (c == 0 ? 7 : 3) && !zero_dist; itr++) {
-        for(int j = 0; j < OAPV_BLK_D && !zero_dist; j++) {
-            int best_idx = 0;
-            s16 org_coef = coeff[scanp[j]];
-            int adj_rng = (c == 0 ? 15 : 5);
-            if(org_coef == 0) {
-                if(c == 0 && scanp[j] < 3) {
-                    adj_rng = 3;
-                }
-                else {
-                    continue;
-                }
-            }
+    for(int itr = 0; itr < 3; itr++) {
+        int list_cnt = 0;
+        oapve_coef_info_t coef_list[OAPV_FULL_RDO_MAX_CAND] = { 0 };
+        
+        for(int j = 0; j < OAPV_BLK_D; j++) {
+            s16 org_coef = best_coeff[scanp[j]];
+            int adj_rng = org_coef == 0 ? 3 : 2;
 
-            for(int i = 1; i < adj_rng && !zero_dist; i++) {
-                if(i > 2) {
-                    if(best_idx == 0) {
-                        continue;
-                    }
-                    else if(best_idx % 2 == 1 && i % 2 == 0) {
-                        continue;
-                    }
-                    else if(best_idx % 2 == 0 && i % 2 == 1) {
-                        continue;
-                    }
-                }
+            oapve_coef_info_t coef_cur;
+            coef_cur.cost = best_cost;
+            for(int i = 1; i < adj_rng; i++) {
+                s16 test_diff = org_coef == 0 ? (i == 1 ? 1 : -1) : (org_coef > 0 ? i : -i);
+                s16 test_coef = org_coef + test_diff;
 
-                s16 test_coef = org_coef + map_idx_diff[i];
+                oapv_mcpy(coeff, best_coeff, sizeof(s16) * OAPV_BLK_D);
                 coeff[scanp[j]] = test_coef;
 
-                oapv_mcpy(recon, coeff, sizeof(s16) * OAPV_BLK_D);
-                ctx->fn_dquant[0](recon, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
-                ctx->fn_itx[0](recon, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
-                int cost = (int)ctx->fn_ssd[0](blk_w, blk_h, org, recon, blk_w, blk_w);
+                int test_rate = oapve_vlc_get_coef_rate(core, coeff, c);
+                ctx->fn_dquant[0](coeff, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
+                ctx->fn_itx[0](coeff, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
+                double cost = (int)ctx->fn_ssd[0](blk_w, blk_h, org, coeff, blk_w, blk_w);
+                cost += (lambda) * (test_rate);
 
-                if(cost < best_cost) {
-                    best_cost = cost;
-                    best_coeff[scanp[j]] = test_coef;
-                    if(ctx->rec) {
-                        oapv_mcpy(best_recon, recon, sizeof(s16) * OAPV_BLK_D);
-                    }
-                    best_idx = i;
-                    if(cost == 0) {
-                        zero_dist = 1;
-                    }
-                }
-                else {
-                    coeff[scanp[j]] = org_coef + map_idx_diff[best_idx];
+                if(cost < coef_cur.cost) {
+                    coef_cur.cost = cost;
+                    coef_cur.coef_org = org_coef;
+                    coef_cur.coef_test = test_coef;
+                    coef_cur.coef_pos = scanp[j];
                 }
             }
+
+            if(coef_cur.cost < best_cost) {
+                add_coef_list(coef_list, coef_cur, &list_cnt);
+            }
         }
+
+        for(int j = 1; j < (1 << list_cnt) && j < (1 << OAPV_FULL_RDO_MAX_CAND); j++) {
+            oapv_mcpy(coeff, best_coeff, sizeof(s16) * OAPV_BLK_D);
+            for(int i = 0; i < OAPV_FULL_RDO_MAX_CAND && i < list_cnt; i++) {
+                coeff[coef_list[i].coef_pos] = ((j >> i) & 1) ? coef_list[i].coef_test : coef_list[i].coef_org;
+            }
+            oapv_mcpy(recon, coeff, sizeof(s16) * OAPV_BLK_D);
+            ctx->fn_dquant[0](recon, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
+            ctx->fn_itx[0](recon, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
+            double cost = (int)ctx->fn_ssd[0](blk_w, blk_h, org, recon, blk_w, blk_w);
+            int test_rate = oapve_vlc_get_coef_rate(core, coeff, c);
+            cost += (lambda) * (test_rate);
+            if(cost < best_cost) {
+                best_cost = cost;
+                oapv_mcpy(best_coeff, coeff, sizeof(s16) * OAPV_BLK_D);
+            }
+        }
+    }
+
+    if(ctx->rec) {
+        oapv_mcpy(best_recon, best_coeff, sizeof(s16) * OAPV_BLK_D);
+        ctx->fn_dquant[0](best_recon, core->q_mat_dec[c], log2_w, log2_h, core->dq_shift[c]);
+        ctx->fn_itx[0](best_recon, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
     }
 
     core->dc_diff = best_coeff[0] - core->prev_dc[c];
@@ -703,7 +667,7 @@ static void enc_flush(oapve_ctx_t *ctx)
         }
     }
 
-    if (ctx->sync_obj != NULL) {
+    if(ctx->sync_obj != NULL) {
         oapv_tpool_sync_obj_delete(&ctx->sync_obj);
     }
     for(int i = 0; i < ctx->threads; i++) {
@@ -852,6 +816,10 @@ static int enc_tile(oapve_ctx_t *ctx, oapve_core_t *core, oapve_tile_t *tile)
                     core->q_mat_dec[c][cnt++] = dq_scale * ctx->fh.q_matrix[c][y][x];
                 }
             }
+        }
+
+        if(ctx->param->preset == OAPV_PRESET_MEDIUM || ctx->param->preset == OAPV_PRESET_SLOW) {
+            oapve_init_rdoq(core, ctx->bit_depth, c);
         }
     }
 
