@@ -1342,7 +1342,7 @@ int oapve_encode(oapve_t eid, oapv_frms_t *ifrms, oapvm_t mid, oapv_bitb_t *bitb
     if(md_list != NULL) {
         int num_md = md_list->num;
         for(i = 0; i < num_md; i++) {
-            int group_id = md_list->group_ids[i];
+            int group_id = md_list->md_arr[i].group_id;
             bs_pos_pbu_beg = oapv_bsw_sink(bs);            /* store pbu pos to calculate size */
             oapv_mcpy(&bs_pbu_beg, bs, sizeof(oapv_bs_t)); /* store pbu pos of ai to re-write */
             DUMP_SAVE(0);

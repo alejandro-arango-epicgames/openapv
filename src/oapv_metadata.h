@@ -40,16 +40,16 @@
 /* Metadata payload */
 typedef struct oapv_mdp oapv_mdp_t;
 struct oapv_mdp {
-    u32         pld_type; /* u(8) */
-    u32         pld_size; /* u(8) */
+    u32         pld_type; /* u(32) */
+    u32         pld_size; /* u(32) */
     void       *pld_data;
     oapv_mdp_t *next;
 };
 
 typedef struct oapv_md oapv_md_t;
 struct oapv_md {
-    int         md_num;
-    u32         md_size; /* u(32) */
+    int         mdp_num;
+    int         group_id;
     oapv_mdp_t *md_payload;
 };
 
@@ -57,7 +57,6 @@ typedef struct oapvm_ctx oapvm_ctx_t;
 struct oapvm_ctx {
     u32       magic; // magic code
     oapv_md_t md_arr[OAPV_MAX_NUM_METAS];
-    int       group_ids[OAPV_MAX_NUM_METAS];
     int       num;
 };
 

@@ -631,9 +631,9 @@ typedef struct oapvm_payload oapvm_payload_t;
 struct oapvm_payload {
     int           group_id;  // group ID
     int           type;      // payload type
-    unsigned char uuid[16];  // UUID for user-defined metadata payload
+    int           size;      // byte size of metadata payload
     void         *data;      // address of metadata payload
-    int           data_size; // byte size of metadata payload
+    unsigned char uuid[16];  // UUID for user-defined metadata payload
 };
 
 /*****************************************************************************
@@ -643,12 +643,12 @@ typedef void       *oapvm_t; // instance identifier for OAPV metadata container
 
 OAPV_EXPORT oapvm_t oapvm_create(int *err);
 OAPV_EXPORT void oapvm_delete(oapvm_t mid);
-OAPV_EXPORT void oapvm_rem_all(oapvm_t mid);
-OAPV_EXPORT int oapvm_set(oapvm_t mid, int group_id, int type, void *data, int size, unsigned char *uuid);
+OAPV_EXPORT int oapvm_set(oapvm_t mid, int group_id, int type, void *data, int size);
 OAPV_EXPORT int oapvm_get(oapvm_t mid, int group_id, int type, void **data, int *size, unsigned char *uuid);
 OAPV_EXPORT int oapvm_rem(oapvm_t mid, int group_id, int type, unsigned char *uuid);
 OAPV_EXPORT int oapvm_set_all(oapvm_t mid, oapvm_payload_t *pld, int num_plds);
 OAPV_EXPORT int oapvm_get_all(oapvm_t mid, oapvm_payload_t *pld, int *num_plds);
+OAPV_EXPORT void oapvm_rem_all(oapvm_t mid);
 
 /*****************************************************************************
  * interface for encoder
