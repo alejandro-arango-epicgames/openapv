@@ -118,7 +118,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
     u8 qp = core->qp[ch_type];
     const s32 tr_shift = MAX_TX_DYNAMIC_RANGE - bit_depth - 3;
     const u32 max_num_coef = 1 << (log2_cuw + log2_cuh);
-    const u16 *scan = oapv_tbl_scan;
+    const u8 *scan = oapv_tbl_scan;
     const int q_bits = QUANT_SHIFT + tr_shift + (qp / 6);
     int nnz = 0;
     u32 sum_all = 0;
@@ -163,7 +163,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
         return nnz;
     }
 
-    rice_level = oapv_clip3(OAPV_MIN_DC_LEVEL_CTX, OAPV_MAX_DC_LEVEL_CTX, core->prev_dc_ctx[ch_type] >> 1);
+    rice_level = oapv_clip3(OAPV_KPARAM_DC_MIN, OAPV_KPARAM_DC_MAX, core->prev_dc_ctx[ch_type] >> 1);
     rice_run = prev_run / 4;
     if(rice_run > 2) {
         rice_run = 2;
@@ -185,7 +185,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
         err1 = (double)tmp_level_double[blk_pos] * core->err_scale_tbl[ch_type][blk_pos];
         uncoded_cost = err1 * err1;
 
-        rice_level = oapv_clip3(OAPV_MIN_DC_LEVEL_CTX, OAPV_MAX_DC_LEVEL_CTX, core->prev_dc_ctx[ch_type] >> 1);
+        rice_level = oapv_clip3(OAPV_KPARAM_DC_MIN, OAPV_KPARAM_DC_MAX, core->prev_dc_ctx[ch_type] >> 1);
 
         for(tmp_level = max_level; tmp_level >= min_level; tmp_level--) {
             if(tmp_level == 0) {
@@ -197,7 +197,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
             double curr_run_bit_cost = oapve_vlc_get_run_cost(63, 0, lambda);
             double curr_bit_cost = oapve_vlc_get_level_cost(oapv_abs(tmp_level - core->prev_dc[ch_type]), rice_level, lambda) + curr_run_bit_cost;
             double curr_cost = curr_dist + curr_bit_cost;
-               
+
             if(curr_cost < best_cost) {
                 best_level = tmp_level;
                 base_dist = curr_dist;
@@ -231,7 +231,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
         }
         rice_level = prev_level >> 2;
         if(rice_level > 4) {
-            rice_level = OAPV_MAX_AC_LEVEL_CTX;
+            rice_level = OAPV_KPARAM_AC_MAX;
         }
 
         for(tmp_level = max_level; tmp_level >= min_level; tmp_level--) {

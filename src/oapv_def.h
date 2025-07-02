@@ -63,10 +63,12 @@
 #define N_C                       4 /* maximum number of color component */
 
 #define OAPV_VLC_TREE_LEVEL       2
-#define OAPV_MIN_DC_LEVEL_CTX     0
-#define OAPV_MAX_DC_LEVEL_CTX     5
-#define OAPV_MIN_AC_LEVEL_CTX     0
-#define OAPV_MAX_AC_LEVEL_CTX     4
+#define OAPV_KPARAM_DC_MIN        0
+#define OAPV_KPARAM_DC_MAX        5
+#define OAPV_KPARAM_AC_MIN        0
+#define OAPV_KPARAM_AC_MAX        4
+#define OAPV_KPARAM_RUN_MIN       0
+#define OAPV_KPARAM_RUN_MAX       2
 
 /* Maximum transform dynamic range (excluding sign bit) */
 #define MAX_TX_DYNAMIC_RANGE      15
@@ -352,8 +354,8 @@ struct oapvd_core {
     ALIGNED_16(s16 coef[OAPV_MB_D]);
     s16          q_mat[N_C][OAPV_BLK_D];
 
-    int          prev_dc_ctx[N_C];
-    int          prev_1st_ac_ctx[N_C];
+    int          kparam_dc[N_C];
+    int          kparam_ac[N_C];
     int          prev_dc[N_C];
     int          dc_diff; /* DC difference, which is represented in 17 bits */
                           /* and coded as abs_dc_coeff_diff and sign_dc_coeff_diff */

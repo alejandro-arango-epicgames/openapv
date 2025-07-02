@@ -248,7 +248,6 @@ int oapvm_get(oapvm_t mid, int group_id, int type, void **data, int *size, unsig
 
     *data = mdp->pld_data;
     *size = mdp->pld_size;
-
     return OAPV_OK;
 
 ERR:

@@ -81,7 +81,7 @@ const s8 oapv_tbl_tm8[8][8] = {
 
 const int oapv_tbl_dq_scale[6] = {40, 45, 51, 57, 64, 71};
 
-const u16 oapv_tbl_scan[OAPV_BLK_D] = {
+const u8 oapv_tbl_scan[OAPV_BLK_D] = {
     0,    1,    8,    16,   9,    2,    3,   10,
     17,   24,   32,   25,   18,   11,   4,    5,
     12,   19,   26,   33,   40,   48,   41,   34,
