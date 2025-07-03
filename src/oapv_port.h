@@ -68,41 +68,6 @@ typedef s32      dpel;
 #endif
 
 /*****************************************************************************
- * memory operations
- *****************************************************************************/
-#define oapv_malloc(size)      malloc((size))
-#define oapv_malloc_fast(size) oapv_malloc((size))
-
-#define oapv_mfree(m) \
-    {                 \
-        if(m) {       \
-            free(m);  \
-        }             \
-    }
-#define oapv_mfree_fast(m) \
-    {                      \
-        if(m) {            \
-            oapv_mfree(m); \
-        }                  \
-    }
-
-void *oapv_malloc_align32(int size);
-void oapv_mfree_align32(void *p);
-
-#define oapv_mcpy(dst, src, size)    memcpy((dst), (src), (size))
-#define oapv_mset(dst, v, size)      memset((dst), (v), (size))
-#define oapv_mset_x64a(dst, v, size) memset((dst), (v), (size))
-#define oapv_mset_x128(dst, v, size) memset((dst), (v), (size))
-#define oapv_mcmp(dst, src, size)    memcmp((dst), (src), (size))
-
-static __inline void oapv_mset_16b(s16 *dst, s16 v, int cnt)
-{
-    int i;
-    for(i = 0; i < cnt; i++)
-        dst[i] = v;
-}
-
-/*****************************************************************************
  * trace and assert
  *****************************************************************************/
 void oapv_trace0(char *filename, int line, const char *fmt, ...);
@@ -187,6 +152,48 @@ void oapv_trace_line(char *pre);
 #if ARM_NEON
 #include <arm_neon.h>
 #endif
+
+/*****************************************************************************
+ * memory operations
+ *****************************************************************************/
+#define oapv_malloc(size)      malloc((size))
+#define oapv_malloc_fast(size) oapv_malloc((size))
+
+#define oapv_mfree(m) \
+    {                 \
+        if(m) {       \
+            free(m);  \
+        }             \
+    }
+#define oapv_mfree_fast(m) \
+    {                      \
+        if(m) {            \
+            oapv_mfree(m); \
+        }                  \
+    }
+
+void *oapv_malloc_align32(int size);
+void oapv_mfree_align32(void *p);
+#if X86_SSE
+void *oapv_memset_x128_avx(void* dst, int value, size_t size);
+#endif
+
+#define oapv_mcpy(dst, src, size)    memcpy((dst), (src), (size))
+#define oapv_mset(dst, v, size)      memset((dst), (v), (size))
+#define oapv_mset_x64a(dst, v, size) memset((dst), (v), (size))
+#if X86_SSE
+#define oapv_mset_x128(dst, v, size) oapv_memset_x128_avx((dst), (v), (size))
+#else
+#define oapv_mset_x128(dst, v, size) memset((dst), (v), (size))
+#endif
+#define oapv_mcmp(dst, src, size)    memcmp((dst), (src), (size))
+
+static __inline void oapv_mset_16b(s16 *dst, s16 v, int cnt)
+{
+    int i;
+    for(i = 0; i < cnt; i++)
+        dst[i] = v;
+}
 
 /* Buffer Alignement */
 #if defined(_WIN32) && !defined(__GNUC__)
