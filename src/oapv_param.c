@@ -62,7 +62,6 @@ int oapve_param_default(oapve_param_t *param)
     param->transfer_characteristics = 2; // unspecified transfer characteristics
     param->matrix_coefficients = 2; // unspecified matrix coefficients
     param->full_range_flag = 0; // limited range
-
     return OAPV_OK;
 }
 
@@ -338,7 +337,6 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
     else {
         return OAPV_ERR_INVALID_ARGUMENT;
     }
-
     return OAPV_OK;
 }
 
@@ -501,3 +499,69 @@ int oapve_param_update(oapve_ctx_t* ctx)
 
     return ret;
 }
+
+/* APV family series information */
+static int family_info[][2] = {
+    {      (0 * 0),  38}, // minimum value undefined in family spec
+    {  (960 * 540),  72}, // qHD
+    { (1280 * 720),  98}, // 720p
+    {(1920 * 1080), 198}, // FHD
+    {(2048 * 1080), 211}, // 2K
+    {(3840 * 2160), 796}, // UHD 4K
+};
+
+#define NUM_FAMILY_INFO ((int)(sizeof(family_info) / sizeof(family_info[0])))
+
+static float get_key_bitrate(int w, int h)
+{
+    int idx, wh_hi, wh_lo, bit_hi, bit_lo;
+    int wh = w * h;
+    float key = 0.f;
+
+    for(idx = 0; idx < NUM_FAMILY_INFO; idx++) {
+        if(wh < family_info[idx][0]) {
+            wh_hi  = family_info[idx][0]; // resolution of high-bound
+            bit_hi = family_info[idx][1]; // Mbps for high-bound
+            wh_lo  = family_info[idx-1][0]; // resolution of low-bound
+            bit_lo = family_info[idx-1][1]; // Mbps of low-bound
+
+            float ratio = (float)(bit_hi - bit_lo) / (wh_hi - wh_lo);
+            key   = bit_lo + (ratio * (wh - wh_lo));
+            break;
+        }
+    }
+    if(idx == NUM_FAMILY_INFO) {
+        // needs to linear interpolation from the last element of the family table.
+        int fidx = NUM_FAMILY_INFO - 1;
+        wh_hi  = family_info[fidx][0];
+        bit_hi = family_info[fidx][1];
+        key    = bit_hi * ((float)wh / wh_hi);
+    }
+    return key;
+}
+
+int oapve_family_bitrate(int family, int w, int h, int fps_num, int fps_den, int * kbps)
+{
+    float key, ratio, fps;
+
+    switch(family) {
+    case OAPV_FAMILY_422_LQ:
+        ratio = 1.f / (1.4f * 1.4f);
+        break;
+    case OAPV_FAMILY_422_SQ:
+        ratio = 1.f / 1.4f;
+        break;
+    case OAPV_FAMILY_422_HQ:
+        ratio = 1.f;
+        break;
+    case OAPV_FAMILY_444_HQ:
+        ratio = 1.5f;
+        break;
+    default: // invalid family
+        return OAPV_ERR_INVALID_FAMILY; // unknown family
+    }
+    key = get_key_bitrate(w, h);
+    *kbps = (int)(key * ratio * ((float)fps_num/fps_den)/30.f * 1000.f); // unit: kbps
+    return OAPV_OK;
+}
+

@@ -81,7 +81,7 @@ static const args_opt_t enc_args_opts[] = {
         'q',  "qp", ARGS_VAL_TYPE_STRING, 0, NULL,
         "QP value: 0 ~ (63 + (bitdepth - 10)*6) \n"
         "      - 10bit input: 0 ~ 63\n"
-        "      - 12bit input: 0 ~ 75"
+        "      - 12bit input: 0 ~ 75\n"
         "      - 'auto' means that the value is internally determined"
     },
     {
@@ -112,13 +112,26 @@ static const args_opt_t enc_args_opts[] = {
         "      - 5: P2(Planar Y, Combined CbCr, 422)"
     },
     {
+        ARGS_NO_KEY,  "family", ARGS_VAL_TYPE_STRING, 0, NULL,
+        "family name for bitrate setting\n"
+        "      - 422-LQ: YCbCr422 low quality\n"
+        "      - 422-SQ: YCbCr422 standard quality\n"
+        "      - 422-HQ: YCbCr422 high quality\n"
+        "      - 444-HQ: YCbCr444 high quality\n"
+        "      Note: 'family' and 'bitrate' value cannot be set together.\n"
+        "            The family and profile arguments should be set with the same\n"
+        "            color space, if they coexists."
+    },
+    {
         ARGS_NO_KEY,  "profile", ARGS_VAL_TYPE_STRING, 0, NULL,
         "profile string\n"
         "      - 422-10: YCbCr422 10bit (default)\n"
         "      - 422-12; YCbCr422 12bit\n"
         "      - 400-10: YCbCr400 (monochrome) 10bit\n"
         "      Note: Color space and bit depth of input video will be converted\n"
-        "            automatically to support the given profile, if needs"
+        "            automatically to support the given profile, if needs\n"
+        "            The family and profile arguments should be set with the same\n"
+        "            color space, if they coexists."
     },
     {
         ARGS_NO_KEY,  "level", ARGS_VAL_TYPE_STRING, 0, NULL,
@@ -214,6 +227,7 @@ typedef struct args_var {
     char           qp_offset_c1[16];
     char           qp_offset_c2[16];
     char           qp_offset_c3[16];
+    char           family[16];
     char           bitrate[32];
 
     char           preset[16];
@@ -275,8 +289,9 @@ static args_var_t *args_init_vars(args_parser_t *args, oapve_param_t *param)
     args_set_variable_by_key_long(opts, "qp_offset_c2", vars->qp_offset_c2);
     args_set_variable_by_key_long(opts, "qp_offset_c3", vars->qp_offset_c3);
 
-
+    args_set_variable_by_key_long(opts, "family", vars->family);
     args_set_variable_by_key_long(opts, "bitrate", vars->bitrate);
+
     args_set_variable_by_key_long(opts, "q-matrix-c0", vars->q_matrix_c0);
     args_set_variable_by_key_long(opts, "q-matrix-c1", vars->q_matrix_c1);
     args_set_variable_by_key_long(opts, "q-matrix-c2", vars->q_matrix_c2);
@@ -327,17 +342,68 @@ ERR:
         free(args_var);
 }
 
+static int get_val_from_key(const oapv_dict_str_int_t * dict, const char * key)
+{
+    while(strlen(dict->key) > 0) {
+        if(strcmp(dict->key, key) == 0){
+            return dict->val;
+        }
+        dict++;
+    }
+    return -1;
+}
+
+static const oapv_dict_str_int_t opts_family[] = {
+    {"422-LQ",    OAPV_FAMILY_422_LQ},
+    {"422-SQ",    OAPV_FAMILY_422_SQ},
+    {"422-HQ",    OAPV_FAMILY_422_HQ},
+    {"444-HQ",    OAPV_FAMILY_444_HQ},
+    {"", 0} // termination
+};
+
 static int check_conf(oapve_cdesc_t *cdesc, args_var_t *vars)
 {
     int i;
     for(i = 0; i < cdesc->max_num_frms; i++) {
         // ensure frame width multiple of 2 in case of 422 format
         if ((vars->input_csp == 2) && (cdesc->param[i].w & 0x1)) {
-            logerr("%d-th frame's width should be a multiple of 2 for '--input-csp 2'\n", i);
+            logerr("ERR: %d-th frame's width should be a multiple of 2 for '--input-csp 2'\n", i);
             return -1;
         }
         if(vars->hash && strlen(vars->fname_rec) == 0) {
-            logerr("cannot use frame hash without reconstructed picture option!\n");
+            logerr("ERR: cannot use frame hash without reconstructed picture option!\n");
+            return -1;
+        }
+    }
+    if(strlen(vars->family) > 0) {
+        int f = get_val_from_key(opts_family, vars->family);
+        if(f < 0) {
+            logerr("ERR: invalid family (%s)\n", vars->family);
+            return -1;
+        }
+        int p = get_val_from_key(oapv_param_opts_profile, vars->profile);
+        if(p < 0) {
+            logerr("ERR: invalid profile (%s)\n", vars->family);
+            return -1;
+        }
+
+        switch(f) {
+        case OAPV_FAMILY_422_LQ:
+        case OAPV_FAMILY_422_SQ:
+        case OAPV_FAMILY_422_HQ:
+            if(p != OAPV_PROFILE_422_10) {
+                logerr("ERR: 'family(%s)' and 'profile(%s)' value are unmatched.\n", vars->family, vars->profile);
+                return -1;
+            }
+            break;
+        case OAPV_FAMILY_444_HQ:
+            if(p != OAPV_PROFILE_444_10) {
+                logerr("ERR: 'family(%s)' and 'profile(%s)' value are unmatched.\n", vars->family, vars->profile);
+                return -1;
+            }
+            break;
+        default:
+            logerr("ERR: invalid family (%s)\n", vars->family);
             return -1;
         }
     }
@@ -353,7 +419,7 @@ static int set_extra_config(oapve_t id, args_var_t *vars, oapve_param_t *param)
         size = 4;
         ret = oapve_config(id, OAPV_CFG_SET_USE_FRM_HASH, &value, &size);
         if(OAPV_FAILED(ret)) {
-            logerr("failed to set config for using frame hash\n");
+            logerr("ERR: failed to set config for using frame hash\n");
             return -1;
         }
     }
@@ -427,6 +493,9 @@ static void print_config(args_var_t *vars, oapve_param_t *param)
     logv3("    height              = %d\n", param->h);
     logv3("    fps                 = %.2f\n", (float)param->fps_num / param->fps_den);
     logv3("    rate control type   = %s\n", (param->rc_type == OAPV_RC_ABR) ? "average bitrate" : "constant qp");
+    if(strlen(vars->family) > 0) {
+        logv3("    family              = %s\n", vars->family);
+    }
     if(param->rc_type == OAPV_RC_CQP){
         logv3("    qp                  = %d\n", param->qp);
     }
@@ -504,19 +573,17 @@ static void print_stat_frms(oapve_stat_t *stat, oapv_frms_t *ifrms, oapv_frms_t 
     fflush(stderr);
 }
 
-static int kbps_str_to_int(char *str)
+static int family_to_bitrate(char * family, oapve_param_t *param)
 {
-    int kbps;
-    if(strchr(str, 'K') || strchr(str, 'k')) {
-        char *tmp = strtok(str, "Kk ");
-        kbps = (int)(atof(tmp));
+    int ret, kbps;
+    int fn = get_val_from_key(opts_family, family);
+    if(fn < 0) {
+        logerr("ERR: invalid family value (%s)\n", family);
+        return -1;
     }
-    else if(strchr(str, 'M') || strchr(str, 'm')) {
-        char *tmp = strtok(str, "Mm ");
-        kbps = (int)(atof(tmp) * 1000);
-    }
-    else {
-        kbps = atoi(str);
+    ret = oapve_family_bitrate(fn, param->w, param->h, param->fps_num, param->fps_den, &kbps);
+    if(OAPV_FAILED(ret)) {
+        return -1;
     }
     return kbps;
 }
@@ -543,6 +610,19 @@ static int update_param(args_var_t *vars, oapve_param_t *param)
     UPDATE_A_PARAM_W_KEY_VAL(param, "qp-offset-c1", vars->qp_offset_c1);
     UPDATE_A_PARAM_W_KEY_VAL(param, "qp-offset-c2", vars->qp_offset_c2);
     UPDATE_A_PARAM_W_KEY_VAL(param, "qp-offset-c3", vars->qp_offset_c3);
+
+    if(strlen(vars->family) > 0) {
+        if(strlen(vars->bitrate) > 0) {
+            logerr("ERR: 'family' and 'bitrate' value cannot be set together.\n");
+            return -1;
+        }
+        int kbps = family_to_bitrate(vars->family, param);
+        if(kbps < 0) {
+            logerr("ERR: failed to get targe bitrate from family value\n");
+            return -1;
+        }
+        sprintf(vars->bitrate, "%d", kbps);
+    }
     UPDATE_A_PARAM_W_KEY_VAL(param, "bitrate", vars->bitrate);
 
     UPDATE_A_PARAM_W_KEY_VAL(param, "preset", vars->preset);
@@ -562,6 +642,7 @@ static int update_param(args_var_t *vars, oapve_param_t *param)
     UPDATE_A_PARAM_W_KEY_VAL(param, "tile-h", vars->tile_h);
 
     param->csp = vars->input_csp;
+
     return 0;
 }
 
@@ -616,25 +697,25 @@ int main(int argc, const char **argv)
     param = &cdesc.param[FRM_IDX];
     ret = oapve_param_default(param);
     if(OAPV_FAILED(ret)) {
-        logerr("cannot set default parameter\n");
+        logerr("ERR: cannot set default parameter\n");
         ret = -1;
         goto ERR;
     }
     /* parse command line */
     args = args_create(enc_args_opts, NUM_ARGS_OPT);
     if(args == NULL) {
-        logerr("cannot create argument parser\n");
+        logerr("ERR: cannot create argument parser\n");
         ret = -1;
         goto ERR;
     }
     args_var = args_init_vars(args, param);
     if(args_var == NULL) {
-        logerr("cannot initialize argument parser\n");
+        logerr("ERR: cannot initialize argument parser\n");
         ret = -1;
         goto ERR;
     }
     if(args->parse(args, argc, argv, &errstr)) {
-        logerr("command parsing error (%s)\n", errstr);
+        logerr("ERR: command parsing error (%s)\n", errstr);
         ret = -1;
         goto ERR;
     }
@@ -643,7 +724,7 @@ int main(int argc, const char **argv)
 
     // check mandatory arguments
     if(args->check_mandatory(args, &errstr)) {
-        logerr("'--%s' argument is mandatory\n", errstr);
+        logerr("ERR: '--%s' argument is mandatory\n", errstr);
         ret = -1;
         goto ERR;
     }
@@ -651,7 +732,7 @@ int main(int argc, const char **argv)
     /* try to open input file */
     fp_inp = fopen(args_var->fname_inp, "rb");
     if(fp_inp == NULL) {
-        logerr("ERROR: cannot open input file = (%s)\n", args_var->fname_inp);
+        logerr("ERR: cannot open input file = (%s)\n", args_var->fname_inp);
         ret = -1;
         goto ERR;
     }
@@ -660,7 +741,7 @@ int main(int argc, const char **argv)
     is_inp_y4m = y4m_test(fp_inp);
     if(is_inp_y4m) {
         if(y4m_header_parser(fp_inp, &y4m)) {
-            logerr("This y4m is not supported (%s)\n", args_var->fname_inp);
+            logerr("ERR: y4m format is not supported (%s)\n", args_var->fname_inp);
             ret = -1;
             goto ERR;
         }
@@ -692,24 +773,24 @@ int main(int argc, const char **argv)
 
         // check mandatory parameters for YUV raw file.
         if(strlen(args_var->width) == 0) {
-            logerr("'--width' argument is required\n"); ret = -1; goto ERR;
+            logerr("ERR: '--width' argument is required\n"); ret = -1; goto ERR;
         }
         if(strlen(args_var->height) == 0) {
-            logerr("'--height' argument is required\n"); ret = -1; goto ERR;
+            logerr("ERR: '--height' argument is required\n"); ret = -1; goto ERR;
         }
         if(strlen(args_var->fps) == 0) {
-            logerr("'--fps' argument is required\n"); ret = -1; goto ERR;
+            logerr("ERR: '--fps' argument is required\n"); ret = -1; goto ERR;
         }
     }
     if(args_var->input_csp == -1) {
-        logerr("Unknown input color space. set '--input-csp' argument\n");
+        logerr("ERR: unknown input color space. set '--input-csp' argument\n");
         ret = -1;
         goto ERR;
     }
 
     /* update parameters */
     if(update_param(args_var, param)) {
-        logerr("parameters is not proper\n");
+        logerr("ERR: the coding parameters are not set correctly\n");
         ret = -1;
         goto ERR;
     }
@@ -724,7 +805,7 @@ int main(int argc, const char **argv)
     }
 
     if(check_conf(&cdesc, args_var)) {
-        logerr("invalid configuration\n");
+        logerr("ERR: invalid configuration\n");
         ret = -1;
         goto ERR;
     }
@@ -743,7 +824,7 @@ int main(int argc, const char **argv)
             is_rec_y4m = 0;
         }
         else { // invalid or unknown file name type
-            logerr("unknown file name type for reconstructed video\n");
+            logerr("ERR: unknown file name type for reconstructed video\n");
             ret = -1; goto ERR;
         }
         clear_data(args_var->fname_rec);
@@ -753,7 +834,7 @@ int main(int argc, const char **argv)
     /* allocate bitstream buffer */
     bs_buf = (unsigned char *)malloc(MAX_BS_BUF);
     if(bs_buf == NULL) {
-        logerr("cannot allocate bitstream buffer, size=%d", MAX_BS_BUF);
+        logerr("ERR: cannot allocate bitstream buffer, size=%d", MAX_BS_BUF);
         ret = -1;
         goto ERR;
     }
@@ -761,20 +842,20 @@ int main(int argc, const char **argv)
     /* create encoder */
     id = oapve_create(&cdesc, &ret);
     if(id == NULL) {
-        logerr("cannot create OAPV encoder\n");
+        logerr("ERR: cannot create OAPV encoder\n");
         goto ERR;
     }
 
     /* create metadata handler */
     mid = oapvm_create(&ret);
     if(mid == NULL || OAPV_FAILED(ret)) {
-        logerr("cannot create OAPV metadata handler\n");
+        logerr("ERR: cannot create OAPV metadata handler\n");
         ret = -1;
         goto ERR;
     }
 
     if(set_extra_config(id, args_var, param)) {
-        logerr("cannot set extra configurations\n");
+        logerr("ERR: cannot set extra configurations\n");
         ret = -1;
         goto ERR;
     }
@@ -800,7 +881,7 @@ int main(int argc, const char **argv)
     int codec_depth = (param->profile_idc == OAPV_PROFILE_422_10 || param->profile_idc == OAPV_PROFILE_400_10) ? 10 :
                        param->profile_idc == OAPV_PROFILE_422_12 ? 12 : 0;
     if (codec_depth == 0) {
-        logerr("invalid profile\n");
+        logerr("ERR: invalid profile\n");
         ret = -1;
         goto ERR;
     }
@@ -889,14 +970,14 @@ int main(int argc, const char **argv)
                 if(OAPV_SUCCEEDED(ret)) {
                     if(is_out && stat.write > 0) {
                         if(write_data(args_var->fname_out, bs_buf, stat.write)) {
-                            logerr("cannot write bitstream\n");
+                            logerr("ERR: cannot write bitstream\n");
                             ret = -1;
                             goto ERR;
                         }
                     }
                 }
                 else {
-                    logerr("failed to encode\n");
+                    logerr("ERR: failed to encode\n");
                     ret = -1;
                     goto ERR;
                 }
@@ -905,13 +986,13 @@ int main(int argc, const char **argv)
                 if(is_rec) {
                     if(frm_cnt[fidx] == 0 && is_rec_y4m) {
                         if(write_y4m_header(args_var->fname_rec, imgb_o)) {
-                            logerr("cannot write Y4M header\n");
+                            logerr("ERR: cannot write Y4M header\n");
                             ret = -1;
                             goto ERR;
                         }
                     }
                     if(write_rec_img(args_var->fname_rec, imgb_o, is_rec_y4m)) {
-                        logerr("cannot write reconstructed video\n");
+                        logerr("ERR: cannot write reconstructed video\n");
                         ret = -1;
                         goto ERR;
                     }

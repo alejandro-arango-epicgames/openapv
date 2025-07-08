@@ -392,18 +392,18 @@ int main(int argc, const char **argv)
     /* parse command line */
     args = args_create(dec_args_opts, NUM_ARGS_OPT);
     if(args == NULL) {
-        logerr("cannot create argument parser\n");
+        logerr("ERR: cannot create argument parser\n");
         ret = -1;
         goto ERR;
     }
     args_var = args_init_vars(args);
     if(args_var == NULL) {
-        logerr("cannot initialize argument parser\n");
+        logerr("ERR: cannot initialize argument parser\n");
         ret = -1;
         goto ERR;
     }
     if(args->parse(args, argc, argv, &errstr)) {
-        logerr("command parsing error (%s)\n", errstr);
+        logerr("ERR: command parsing error (%s)\n", errstr);
         ret = -1;
         goto ERR;
     }
@@ -411,7 +411,7 @@ int main(int argc, const char **argv)
     print_commandline(argc, argv);
 
     if(args->check_mandatory(args, &errstr)) {
-        logerr("'--%s' argument is mandatory\n", errstr);
+        logerr("ERR: '--%s' argument is mandatory\n", errstr);
         ret = -1;
         goto ERR;
     }
@@ -419,7 +419,7 @@ int main(int argc, const char **argv)
     /* open input file */
     fp_bs = fopen(args_var->fname_inp, "rb");
     if(fp_bs == NULL) {
-        logerr("ERROR: cannot open bitstream file = %s\n", args_var->fname_inp);
+        logerr("ERR: cannot open bitstream file = %s\n", args_var->fname_inp);
         print_usage(argv);
         ret = -1; goto ERR;
     }
@@ -433,7 +433,7 @@ int main(int argc, const char **argv)
             is_y4m = 0;
         }
         else { // invalid or unknown file name type
-            logerr("unknown file type name for decoded video\n");
+            logerr("ERR: unknown file type name for decoded video\n");
             ret = -1; goto ERR;
         }
         clear_data(args_var->fname_out); /* remove decoded file contents if exists */
@@ -442,7 +442,7 @@ int main(int argc, const char **argv)
     // create bitstream buffer
     bs_buf = malloc(MAX_BS_BUF);
     if(bs_buf == NULL) {
-        logerr("ERROR: cannot allocate bitstream buffer, size=%d\n", MAX_BS_BUF);
+        logerr("ERR: cannot allocate bitstream buffer, size=%d\n", MAX_BS_BUF);
         ret = -1;
         goto ERR;
     }
@@ -455,12 +455,12 @@ int main(int argc, const char **argv)
     }
     did = oapvd_create(&cdesc, &ret);
     if(did == NULL) {
-        logerr("ERROR: cannot create OAPV decoder (err=%d)\n", ret);
+        logerr("ERR: cannot create OAPV decoder (err=%d)\n", ret);
         ret = -1;
         goto ERR;
     }
     if(set_extra_config(did, args_var)) {
-        logerr("ERROR: cannot set extra configurations\n");
+        logerr("ERR: cannot set extra configurations\n");
         ret = -1;
         goto ERR;
     }
@@ -471,7 +471,7 @@ int main(int argc, const char **argv)
     /* create metadata container */
     mid = oapvm_create(&ret);
     if(OAPV_FAILED(ret)) {
-        logerr("ERROR: cannot create OAPV metadata container (err=%d)\n", ret);
+        logerr("ERR: cannot create OAPV metadata container (err=%d)\n", ret);
         ret = -1;
         goto ERR;
     }
@@ -490,7 +490,7 @@ int main(int argc, const char **argv)
         }
 
         if(OAPV_FAILED(oapvd_info(bs_buf, bs_buf_size, &aui))) {
-            logerr("cannot get information from bitstream\n");
+            logerr("ERR: cannot get information from bitstream\n");
             ret = -1;
             goto ERR;
         }
@@ -514,7 +514,7 @@ int main(int argc, const char **argv)
                     frm->imgb = imgb_create(finfo->w, finfo->h, finfo->cs);
                 }
                 if(frm->imgb == NULL) {
-                    logerr("cannot allocate image buffer (w:%d, h:%d, cs:%d)\n",
+                    logerr("ERR: cannot allocate image buffer (w:%d, h:%d, cs:%d)\n",
                            finfo->w, finfo->h, finfo->cs);
                     ret = -1;
                     goto ERR;
@@ -539,7 +539,7 @@ int main(int argc, const char **argv)
         clk_tot += clk_end;
 
         if(OAPV_FAILED(ret)) {
-            logerr("failed to decode bitstream\n");
+            logerr("ERR: failed to decode bitstream\n");
             ret = -1;
             goto END;
         }
@@ -557,14 +557,14 @@ int main(int argc, const char **argv)
             ret = oapvm_get_all(mid, NULL, &num_plds);
 
             if(OAPV_FAILED(ret)) {
-                logerr("failed to read metadata\n");
+                logerr("ERR: failed to read metadata\n");
                 goto END;
             }
             if(num_plds > 0) {
                 pld = malloc(sizeof(oapvm_payload_t) * num_plds);
                 ret = oapvm_get_all(mid, pld, &num_plds);
                 if(OAPV_FAILED(ret)) {
-                    logerr("failed to read metadata\n");
+                    logerr("ERR: failed to read metadata\n");
                     free(pld);
                     goto END;
                 }
@@ -586,7 +586,7 @@ int main(int argc, const char **argv)
                         imgb_w = imgb_create(frm->imgb->w[0], frm->imgb->h[0],
                                              OAPV_CS_SET(OAPV_CS_GET_FORMAT(frm->imgb->cs), args_var->output_depth, 0));
                         if(imgb_w == NULL) {
-                            logerr("cannot allocate image buffer (w:%d, h:%d, cs:%d)\n",
+                            logerr("ERR: cannot allocate image buffer (w:%d, h:%d, cs:%d)\n",
                                    frm->imgb->w[0], frm->imgb->h[0], frm->imgb->cs);
                             ret = -1;
                             goto ERR;
@@ -602,13 +602,13 @@ int main(int argc, const char **argv)
                 if(strlen(args_var->fname_out)) {
                     if(frm_cnt[i] == 0 && is_y4m) {
                         if(write_y4m_header(args_var->fname_out, imgb_o)) {
-                            logerr("cannot write Y4M header\n");
+                            logerr("ERR: cannot write Y4M header\n");
                             ret = -1;
                             goto ERR;
                         }
                     }
                     if(write_dec_img(args_var->fname_out, imgb_o, is_y4m)) {
-                        logerr("cannot write decoded video\n");
+                        logerr("ERR: cannot write decoded video\n");
                         ret = -1;
                         goto ERR;
                     }
