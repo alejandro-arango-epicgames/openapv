@@ -58,7 +58,7 @@ void oapv_bsw_init(oapv_bs_t *bs, u8 *buf, int size, oapv_bs_fn_flush_t fn_flush
     bs->size = size;
     bs->beg = buf;
     bs->cur = buf;
-    bs->end = buf + size - 1;
+    bs->end = buf + size;
     bs->code = 0;
     bs->leftbits = 32;
     bs->fn_flush = (fn_flush == NULL ? bsw_flush : fn_flush);
@@ -73,7 +73,7 @@ void oapv_bsw_deinit(oapv_bs_t *bs)
 
 void *oapv_bsw_sink(oapv_bs_t *bs)
 {
-    oapv_assert_rv(bs->cur + BSW_GET_SINK_BYTE(bs) <= bs->end, NULL);
+    oapv_assert_rv(bs->cur + BSW_GET_SINK_BYTE(bs) < bs->end, NULL);
     bs->fn_flush(bs, 0);
     bs->code = 0;
     bs->leftbits = 32;
@@ -108,7 +108,7 @@ int oapv_bsw_write1(oapv_bs_t *bs, int val)
     bs->code |= ((val & 0x1) << bs->leftbits);
 
     if(bs->leftbits == 0) {
-        oapv_assert_rv(bs->cur <= bs->end, -1);
+        oapv_assert_rv(bs->cur < bs->end, -1);
         bs->fn_flush(bs, 0);
 
         bs->code = 0;
@@ -137,7 +137,7 @@ int oapv_bsw_write(oapv_bs_t *bs, u32 val, int len) /* len(1 ~ 32) */
         bs->leftbits -= len;
     }
     else {
-        oapv_assert_rv(bs->cur + 4 <= bs->end, -1);
+        oapv_assert_rv(bs->cur + 4 < bs->end, -1);
 
         bs->leftbits = 0;
         bs->fn_flush(bs, 0);
@@ -185,7 +185,7 @@ static int bsr_flush(oapv_bs_t *bs, int byte)
 
     oapv_assert(byte);
 
-    remained = (int)(bs->end - bs->cur) + 1;
+    remained = (int)(bs->end - bs->cur);
     if(byte > remained)
         byte = remained;
 
@@ -211,7 +211,7 @@ void oapv_bsr_init(oapv_bs_t *bs, u8 *buf, u32 size, oapv_bs_fn_flush_t fn_flush
     bs->size = size;
     bs->cur = buf;
     bs->beg = buf;
-    bs->end = buf + size - 1;
+    bs->end = buf + size;
     bs->code = 0;
     bs->leftbits = 0;
     bs->fn_flush = (fn_flush == NULL) ? bsr_flush : fn_flush;
@@ -308,7 +308,7 @@ u32 oapv_bsr_peek(oapv_bs_t *bs, int size)
         larger than current bs->leftbits.
         In this case, we should read one more byte, but we could not store
         the read byte. */
-        if(bs->cur <= bs->end) {
+        if(bs->cur < bs->end) {
             code |= *(bs->cur) >> (8 - size);
         }
     }
@@ -317,7 +317,7 @@ u32 oapv_bsr_peek(oapv_bs_t *bs, int size)
 
 void *oapv_bsr_sink(oapv_bs_t *bs)
 {
-    oapv_assert_rv(bs->cur + BSW_GET_SINK_BYTE(bs) <= bs->end, NULL);
+    oapv_assert_rv(bs->cur + BSW_GET_SINK_BYTE(bs) < bs->end, NULL);
     oapv_assert_rv((bs->leftbits & 7) == 0, NULL);
     bs->cur = bs->cur - (bs->leftbits >> 3);
     bs->code = 0;

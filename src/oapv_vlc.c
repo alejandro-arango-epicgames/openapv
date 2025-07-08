@@ -1397,7 +1397,7 @@ int oapvd_vlc_tile_header(oapv_bs_t *bs, oapvd_ctx_t *ctx, oapv_th_t *th)
 
 int oapvd_vlc_tile_dummy_data(oapv_bs_t *bs)
 {
-    while(bs->cur <= bs->end) {
+    while(bs->cur < bs->end) {
         oapv_bsr_read(bs, 8);
     }
     return OAPV_OK;

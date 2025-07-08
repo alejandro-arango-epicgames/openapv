@@ -101,18 +101,18 @@ should set zero in that case. */
 #endif
 
 /*! Is end of bitstream ? */
-#define BSR_IS_EOB(bs) (((bs)->cur > (bs)->end && (bs)->leftbits==0)? 1: 0)
+#define BSR_IS_EOB(bs) (((bs)->cur >= (bs)->end && (bs)->leftbits==0)? 1: 0)
 
 /*! Is bitstream byte aligned? */
 #define BSR_IS_BYTE_ALIGN(bs) ((((bs)->leftbits & 0x7) == 0)? 1: 0)
 
 /*! Is last byte of bitsteam? */
 #define BSR_IS_LAST_BYTE(bs) \
-    (((bs)->cur > (bs)->end && bs->leftbits > 0 && (bs)->leftbits <= 8)? 1: 0)
+    (((bs)->cur >= (bs)->end && bs->leftbits > 0 && (bs)->leftbits <= 8)? 1: 0)
 
 /* get left byte count in BS */
 #define BSR_GET_LEFT_BYTE(bs) \
-    ((int)((bs)->end - (bs)->cur) + 1 + ((bs)->leftbits >> 3))
+    ((int)((bs)->end - (bs)->cur) + ((bs)->leftbits >> 3))
 /* get number of byte consumed */
 #define BSR_GET_READ_BYTE(bs) \
     ((int)((bs)->cur - (bs)->beg) - ((bs)->leftbits >> 3))
