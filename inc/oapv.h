@@ -107,8 +107,11 @@ extern "C" {
 #define OAPV_ERR_OUT_OF_BS_BUF          (-203) /* too small bitstream buffer */
 #define OAPV_ERR_NOT_FOUND              (-204)
 #define OAPV_ERR_FAILED_SYSCALL         (-301) /* failed system call */
+#define OAPV_ERR_INVALID_PROFILE        (-400)
 #define OAPV_ERR_INVALID_LEVEL          (-401)
 #define OAPV_ERR_INVALID_WIDTH          (-405) /* invalid width (like odd) */
+#define OAPV_ERR_INVALID_HEIGHT         (-406)
+#define OAPV_ERR_INVALID_QP             (-410)
 #define OAPV_ERR_INVALID_FAMILY         (-501) /* invalid family number */
 #define OAPV_ERR_UNKNOWN                (-32767) /* unknown error */
 
@@ -562,8 +565,6 @@ struct oapve_param {
     /* use quantization matrix */
     int           use_q_matrix;
     unsigned char q_matrix[OAPV_MAX_CC][OAPV_BLK_D]; // raster-scan order
-    /* color space */
-    int           csp;
     /* NOTE: tile_w and tile_h value can be changed internally,
              if the values are not set properly.
              the min and max values are defeind in APV specification */

@@ -35,18 +35,15 @@ int oapve_rc_get_tile_cost(oapve_ctx_t* ctx, oapve_core_t* core, oapve_tile_t* t
 {
     int sum = 0;
     tile->rc.number_pixel = 0;
-    for (int c = Y_C; c < ctx->num_comp; c++)
-    {
+    for (int c = Y_C; c < ctx->num_comp; c++) {
         int step_w = 8 << ctx->comp_sft[c][0];
         int step_h = 8 << ctx->comp_sft[c][1];
-        for (int y = 0; y < tile->h; y += step_h)
-        {
-            for (int x = 0; x < tile->w; x += step_w)
-            {
+        for (int y = 0; y < tile->h; y += step_h) {
+            for (int x = 0; x < tile->w; x += step_w) {
                 int tx = tile->x + x;
                 int ty = tile->y + y;
 
-                ctx->fn_imgb_to_blk_rc(ctx->imgb, c, tx, ty, 8, 8, core->coef, ctx->bit_depth);
+                ctx->fn_imgb_to_blk_rc(ctx->imgb_i, c, tx, ty, 8, 8, core->coef, ctx->bit_depth);
                 sum += ctx->fn_had8x8(core->coef, 8);
                 tile->rc.number_pixel += 64;
             }
@@ -68,18 +65,15 @@ int get_tile_cost_thread(void* arg)
     while (1) {
         // find not processed tile
         oapv_tpool_enter_cs(ctx->sync_obj);
-        for (i = 0; i < ctx->num_tiles; i++)
-        {
-            if (tile[i].stat == ENC_TILE_STAT_NOT_ENCODED)
-            {
+        for (i = 0; i < ctx->num_tiles; i++) {
+            if (tile[i].stat == ENC_TILE_STAT_NOT_ENCODED) {
                 tile[i].stat = ENC_TILE_STAT_ON_ENCODING;
                 tidx = i;
                 break;
             }
         }
         oapv_tpool_leave_cs(ctx->sync_obj);
-        if (i == ctx->num_tiles)
-        {
+        if (i == ctx->num_tiles) {
             break;
         }
 
@@ -136,8 +130,7 @@ static double rc_calculate_lambda(double alpha, double beta, double cost_pixel, 
 double oapve_rc_estimate_pic_lambda(oapve_ctx_t* ctx, double cost)
 {
     int num_pixel = ctx->w * ctx->h;
-    for (int c = 1; c < ctx->num_comp; c++)
-    {
+    for (int c = 1; c < ctx->num_comp; c++) {
         num_pixel += (ctx->w * ctx->h) >> (ctx->comp_sft[c][0] + ctx->comp_sft[c][1]);
     }
 
@@ -190,14 +183,12 @@ void oapve_rc_get_qp(oapve_ctx_t* ctx, oapve_tile_t* tile, int frame_qp, int* qp
 void oapve_rc_update_after_pic(oapve_ctx_t* ctx, double cost)
 {
     int num_pixel = ctx->w * ctx->h;
-    for (int c = 1; c < ctx->num_comp; c++)
-    {
+    for (int c = 1; c < ctx->num_comp; c++) {
         num_pixel += (ctx->w * ctx->h) >> (ctx->comp_sft[c][0] + ctx->comp_sft[c][1]);
     }
 
     int total_bits = 0;
-    for (int i = 0; i < ctx->num_tiles; i++)
-    {
+    for (int i = 0; i < ctx->num_tiles; i++) {
         total_bits += ctx->fh.tile_size[i] * 8;
     }
 

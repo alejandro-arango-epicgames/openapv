@@ -188,7 +188,7 @@ typedef double (*oapv_fn_enc_blk_cost_t)(oapve_ctx_t *ctx, oapve_core_t *core, i
 typedef void (*oapv_fn_imgb_to_blk_rc_t)(oapv_imgb_t *imgb, int c, int x_l, int y_l, int w_l, int h_l, s16 *block, int bit_depth);
 typedef void (*oapv_fn_imgb_to_blk_t)(void *src, int blk_w, int blk_h, int s_src, int offset_src, int s_dst, void *dst, int bit_depth);
 typedef void (*oapv_fn_blk_to_imgb_t)(void *src, int blk_w, int blk_h, int s_src, int offset_dst, int s_dst, void *dst, int bit_depth);
-typedef void (*oapv_fn_img_pad_t)(oapve_ctx_t *ctx, oapv_imgb_t *imgb);
+typedef void (*oapv_fn_imgb_pad_t)(oapv_imgb_t *imgb, int aw, int ah, int comp_sft[N_C][2]);
 typedef int (*oapv_fn_had8x8_t)(pel *org, int s_org);
 
 /*****************************************************************************
@@ -269,8 +269,8 @@ struct oapve_ctx {
     u32                       magic; // magic code
     oapve_t                   id;    // identifier
     oapve_cdesc_t             cdesc;
-    oapv_imgb_t              *imgb;
-    oapv_imgb_t              *rec;
+    oapv_imgb_t              *imgb_i;
+    oapv_imgb_t              *imgb_r;
 
     oapve_param_t            *param;
     oapv_fh_t                 fh;
@@ -287,13 +287,11 @@ struct oapve_ctx {
     int                       num_comp;
     int                       bit_depth;
     int                       comp_sft[N_C][2];
-    int                       log2_block;
     oapv_tpool_t             *tpool;
     oapv_thread_t             thread_id[OAPV_MAX_THREADS];
     oapv_sync_obj_t           sync_obj;
     oapve_core_t             *core[OAPV_MAX_THREADS];
 
-    oapv_bs_t                 bs;
     const oapv_fn_itx_part_t *fn_itx_part;
     const oapv_fn_itx_t      *fn_itx;
     const oapv_fn_itx_adj_t  *fn_itx_adj;
@@ -306,7 +304,7 @@ struct oapve_ctx {
     oapv_fn_imgb_to_blk_rc_t  fn_imgb_to_blk_rc;
     oapv_fn_imgb_to_blk_t     fn_imgb_to_blk[N_C];
     oapv_fn_blk_to_imgb_t     fn_blk_to_imgb[N_C];
-    oapv_fn_img_pad_t         fn_img_pad;
+    oapv_fn_imgb_pad_t        fn_imgb_pad;
     oapv_fn_enc_blk_cost_t    fn_enc_blk;
     oapv_fn_had8x8_t          fn_had8x8;
 

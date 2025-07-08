@@ -304,7 +304,6 @@ static args_var_t *args_init_vars(args_parser_t *args, oapve_param_t *param)
     args_set_variable_by_key_long(opts, "tile-h", vars->tile_h);
 
     args_set_variable_by_key_long(opts, "preset", vars->preset);
-
     return vars;
 }
 
@@ -637,12 +636,8 @@ static int update_param(args_var_t *vars, oapve_param_t *param)
     UPDATE_A_PARAM_W_KEY_VAL(param, "color-matrix", vars->color_matrix);
     UPDATE_A_PARAM_W_KEY_VAL(param, "color-range", vars->color_range);
 
-
     UPDATE_A_PARAM_W_KEY_VAL(param, "tile-w", vars->tile_w);
     UPDATE_A_PARAM_W_KEY_VAL(param, "tile-h", vars->tile_h);
-
-    param->csp = vars->input_csp;
-
     return 0;
 }
 
@@ -749,11 +744,10 @@ int main(int argc, const char **argv)
         cfmt = y4m.color_format;
         // clang-format off
         args_var->input_csp = (cfmt == OAPV_CF_YCBCR400 ? 0 : \
-            (cfmt == OAPV_CF_YCBCR420 ? 1 : \
             (cfmt == OAPV_CF_YCBCR422 ? 2 : \
             (cfmt == OAPV_CF_YCBCR444 ? 3 : \
             (cfmt == OAPV_CF_YCBCR4444 ? 4 : \
-            (cfmt == OAPV_CF_PLANAR2 ? 5 : -1))))));
+            (cfmt == OAPV_CF_PLANAR2 ? 5 : -1)))));
         // clang-format on
 
         if(args_var->input_csp != -1) {
@@ -762,16 +756,12 @@ int main(int argc, const char **argv)
         }
     }
     else {
-        // clang-format off
-        cfmt = (args_var->input_csp == 0 ? OAPV_CF_YCBCR400 : \
-            (args_var->input_csp == 1 ? OAPV_CF_YCBCR420 : \
-            (args_var->input_csp == 2 ? OAPV_CF_YCBCR422 : \
-            (args_var->input_csp == 3 ? OAPV_CF_YCBCR444  : \
-            (args_var->input_csp == 4 ? OAPV_CF_YCBCR4444 : \
-            (args_var->input_csp == 5 ? OAPV_CF_PLANAR2   : OAPV_CF_UNKNOWN))))));
-        // clang-format on
-
         // check mandatory parameters for YUV raw file.
+        if(args_var->input_csp == -1) {
+            logerr("ERR: set '--input-csp' argument\n");
+            ret = -1;
+            goto ERR;
+        }
         if(strlen(args_var->width) == 0) {
             logerr("ERR: '--width' argument is required\n"); ret = -1; goto ERR;
         }
@@ -781,9 +771,16 @@ int main(int argc, const char **argv)
         if(strlen(args_var->fps) == 0) {
             logerr("ERR: '--fps' argument is required\n"); ret = -1; goto ERR;
         }
+        // clang-format off
+        cfmt = (args_var->input_csp == 0 ? OAPV_CF_YCBCR400 : \
+            (args_var->input_csp == 2 ? OAPV_CF_YCBCR422 : \
+            (args_var->input_csp == 3 ? OAPV_CF_YCBCR444  : \
+            (args_var->input_csp == 4 ? OAPV_CF_YCBCR4444 : \
+            (args_var->input_csp == 5 ? OAPV_CF_PLANAR2   : OAPV_CF_UNKNOWN)))));
+        // clang-format on
     }
-    if(args_var->input_csp == -1) {
-        logerr("ERR: unknown input color space. set '--input-csp' argument\n");
+    if(cfmt == OAPV_CF_UNKNOWN) {
+        logerr("ERR: unsupported Y4M color format\n");
         ret = -1;
         goto ERR;
     }

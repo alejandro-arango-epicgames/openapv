@@ -130,21 +130,21 @@ static int get_q_matrix(const char *str, u8 q_matrix[OAPV_BLK_D])
 }
 
 #define NAME_CMP(VAL)      else if(strcmp(name, VAL)== 0)
-#define GET_INTEGER_OR_ERR(STR, F) { \
+#define GET_INTEGER_OR_ERR(STR, F, ERR) { \
     char * left; (F) = strtol(STR, &left, 10); \
-    if(strlen(left)>0) return OAPV_ERR_INVALID_ARGUMENT; \
+    if(strlen(left)>0) return (ERR); \
 }
-#define GET_INTEGER_MIN_OR_ERR(STR, F, MIN) { \
-        GET_INTEGER_OR_ERR(STR, F); \
-        if((F) < (MIN)) return OAPV_ERR_INVALID_ARGUMENT; \
+#define GET_INTEGER_MIN_OR_ERR(STR, F, MIN, ERR) { \
+        GET_INTEGER_OR_ERR(STR, F, ERR); \
+        if((F) < (MIN)) return (ERR); \
 }
-#define GET_INTEGER_MIN_MAX_OR_ERR(STR, F, MIN, MAX) { \
-    GET_INTEGER_OR_ERR(STR, F); \
-    if((F) < (MIN) || (F) > (MAX)) return OAPV_ERR_INVALID_ARGUMENT; \
+#define GET_INTEGER_MIN_MAX_OR_ERR(STR, F, MIN, MAX, ERR) { \
+    GET_INTEGER_OR_ERR(STR, F, ERR); \
+    if((F) < (MIN) || (F) > (MAX)) return (ERR); \
 }
-#define GET_FLOAT_OR_ERR(STR, F) { \
+#define GET_FLOAT_OR_ERR(STR, F, ERR) { \
     char * left; (F) = strtof(STR, &left); \
-    if(strlen(left)>0) return OAPV_ERR_INVALID_ARGUMENT; \
+    if(strlen(left)>0) return (ERR); \
 }
 
 int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value)
@@ -179,7 +179,7 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
             param->level_idc = OAPVE_PARAM_LEVEL_IDC_AUTO;
         }
         else {
-            GET_FLOAT_OR_ERR(value, tf0);
+            GET_FLOAT_OR_ERR(value, tf0, OAPV_ERR_INVALID_ARGUMENT);
             // validation check
             // level == [1, 1.1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 6, 6.1, 7, 7.1]
             if(tf0 == 1.0f || tf0 == 1.1f || tf0 == 2.0f || tf0 == 2.1f || \
@@ -194,7 +194,7 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
         }
     }
     NAME_CMP("band") {
-        GET_INTEGER_MIN_MAX_OR_ERR(value, ti0, 0, 3);
+        GET_INTEGER_MIN_MAX_OR_ERR(value, ti0, 0, 3, OAPV_ERR_INVALID_ARGUMENT);
         param->band_idc = ti0;
     }
     NAME_CMP("preset") {
@@ -204,13 +204,13 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
         param->preset = ti0;
     }
     NAME_CMP("width") {
-        GET_INTEGER_OR_ERR(value, ti0);
-        oapv_assert_rv(ti0 > 0, OAPV_ERR_INVALID_ARGUMENT);
+        GET_INTEGER_OR_ERR(value, ti0, OAPV_ERR_INVALID_WIDTH);
+        oapv_assert_rv(ti0 > 0, OAPV_ERR_INVALID_WIDTH);
         param->w = ti0;
     }
     NAME_CMP("height") {
-        GET_INTEGER_OR_ERR(value, ti0);
-        oapv_assert_rv(ti0 > 0, OAPV_ERR_INVALID_ARGUMENT);
+        GET_INTEGER_OR_ERR(value, ti0, OAPV_ERR_INVALID_HEIGHT);
+        oapv_assert_rv(ti0 > 0, OAPV_ERR_INVALID_HEIGHT);
         param->h = ti0;
     }
     NAME_CMP("fps") {
@@ -218,12 +218,12 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
             sscanf(value, "%d/%d", &param->fps_num, &param->fps_den);
         }
         else if(strpbrk(value, ".") != NULL) {
-            GET_FLOAT_OR_ERR(value, tf0);
+            GET_FLOAT_OR_ERR(value, tf0, OAPV_ERR_INVALID_ARGUMENT);
             param->fps_num = tf0 * 10000;
             param->fps_den = 10000;
         }
         else {
-            GET_INTEGER_OR_ERR(value, ti0);
+            GET_INTEGER_OR_ERR(value, ti0, OAPV_ERR_INVALID_ARGUMENT);
             param->fps_num = ti0;
             param->fps_den = 1;
         }
@@ -238,21 +238,21 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
             //     - 10bit input: 0 ~ 63"
             //     - 12bit input: 0 ~ 75"
             // max value cannot be decided without bitdepth value
-            GET_INTEGER_MIN_MAX_OR_ERR(value, ti0, MIN_QUANT, MAX_QUANT(12));
+            GET_INTEGER_MIN_MAX_OR_ERR(value, ti0, MIN_QUANT, MAX_QUANT(12), OAPV_ERR_INVALID_QP);
             param->qp = ti0;
             param->rc_type = OAPV_RC_CQP;
         }
     }
     NAME_CMP("qp-offset-c1") {
-        GET_INTEGER_OR_ERR(value, ti0);
+        GET_INTEGER_OR_ERR(value, ti0, OAPV_ERR_INVALID_QP);
         param->qp_offset_c1 = ti0;
     }
     NAME_CMP("qp-offset-c2") {
-        GET_INTEGER_OR_ERR(value, ti0);
+        GET_INTEGER_OR_ERR(value, ti0, OAPV_ERR_INVALID_QP);
         param->qp_offset_c2 = ti0;
     }
     NAME_CMP("qp-offset-c3") {
-        GET_INTEGER_OR_ERR(value, ti0);
+        GET_INTEGER_OR_ERR(value, ti0, OAPV_ERR_INVALID_QP);
         param->qp_offset_c3 = ti0;
     }
     NAME_CMP("bitrate") {
@@ -297,12 +297,12 @@ int oapve_param_parse(oapve_param_t *param, const char *name,  const char *value
         param->use_q_matrix = 1;
     }
     NAME_CMP("tile-w") {
-        GET_INTEGER_MIN_OR_ERR(value, ti0, OAPV_MIN_TILE_W);
+        GET_INTEGER_MIN_OR_ERR(value, ti0, OAPV_MIN_TILE_W, OAPV_ERR_INVALID_ARGUMENT);
         oapv_assert_rv((ti0 & (OAPV_MB_W - 1)) == 0, OAPV_ERR_INVALID_ARGUMENT);
         param->tile_w = ti0;
     }
     NAME_CMP("tile-h") {
-        GET_INTEGER_MIN_OR_ERR(value, ti0, OAPV_MIN_TILE_H);
+        GET_INTEGER_MIN_OR_ERR(value, ti0, OAPV_MIN_TILE_H, OAPV_ERR_INVALID_ARGUMENT);
         oapv_assert_rv((ti0 & (OAPV_MB_W - 1)) == 0, OAPV_ERR_INVALID_ARGUMENT);
         param->tile_h = ti0;
     }
@@ -474,9 +474,6 @@ int oapve_param_update(oapve_ctx_t* ctx)
     int ret = OAPV_OK;
     int min_num_tiles = OAPV_MAX_TILES;
     for (int i = 0; i < ctx->cdesc.max_num_frms; i++) {
-        if(ctx->cdesc.param[i].csp == 2 && ctx->cdesc.param[i].w & 0x1) { // check width restriction for 422
-            return OAPV_ERR_INVALID_WIDTH; // odd width is not spec-out
-        }
         ret = enc_update_param_tile(ctx, &ctx->cdesc.param[i]);
         oapv_assert_rv(ret == OAPV_OK, ret);
         int num_tiles = oapv_div_round_up(ctx->w, ctx->cdesc.param[i].tile_w) * oapv_div_round_up(ctx->h, ctx->cdesc.param[i].tile_h);
@@ -542,7 +539,7 @@ static float get_key_bitrate(int w, int h)
 
 int oapve_family_bitrate(int family, int w, int h, int fps_num, int fps_den, int * kbps)
 {
-    float key, ratio, fps;
+    float key, ratio;
 
     switch(family) {
     case OAPV_FAMILY_422_LQ:
