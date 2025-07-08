@@ -48,7 +48,7 @@ int  oapve_vlc_au_info(oapv_bs_t* bs, oapve_ctx_t* ctx, oapv_frms_t* frms, oapv_
 int  oapve_vlc_pbu_header(oapv_bs_t* bs, int pbu_type, int group_id);
 int  oapve_vlc_pbu_size(oapv_bs_t* bs, int pbu_size);
 void oapve_vlc_ac_coef(oapve_ctx_t* ctx, oapve_core_t* core, oapv_bs_t* bs, s16* coef, int num_sig, int ch_type);
-int  oapve_vlc_dc_coef(oapve_ctx_t* ctx, oapve_core_t* core, oapv_bs_t* bs, int dc_diff, int c);
+int  oapve_vlc_dc_coef(oapv_bs_t *bs, int dc_diff, int *kparam_dc);
 int  oapve_vlc_get_coef_rate(oapve_core_t* core, s16* coef, int c);
 double oapve_vlc_get_level_cost(int coef, int k, double lambda);
 double oapve_vlc_get_run_cost(int run, int k, double lambda);

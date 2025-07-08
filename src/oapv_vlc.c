@@ -52,6 +52,11 @@
         bs->leftbits = 32;                    \
     }
 
+
+#define KPARAM_DC(level)      oapv_min((level)>>1, OAPV_KPARAM_DC_MAX)
+#define KPARAM_AC(level)      oapv_min((level)>>2, OAPV_KPARAM_AC_MAX)
+#define KPARAM_RUN(run)       oapv_min((run)>>2, OAPV_KPARAM_RUN_MAX)
+
 ///////////////////////////////////////////////////////////////////////////////
 // start of encoder code
 #if ENABLE_ENCODER
@@ -165,19 +170,21 @@ static int enc_vlc_tile_info(oapv_bs_t *bs, oapve_ctx_t *ctx, oapv_fh_t *fh)
     return 0;
 }
 
-int oapve_vlc_dc_coef(oapve_ctx_t *ctx, oapve_core_t *core, oapv_bs_t *bs, int dc_diff, int c)
+int oapve_vlc_dc_coef(oapv_bs_t *bs, int dc_diff, int *kparam_dc)
 {
-    int rice_level = 0;
     int abs_dc_diff = oapv_abs32(dc_diff);
-    int sign_dc_diff = (dc_diff > 0) ? 0 : 1;
 
-    rice_level = oapv_clip3(OAPV_KPARAM_DC_MIN, OAPV_KPARAM_DC_MAX, core->prev_dc_ctx[c] >> 1);
-    enc_vlc_write(bs, abs_dc_diff, rice_level);
+    enc_vlc_write(bs, abs_dc_diff, *kparam_dc);
 
-    if(abs_dc_diff)
+    if(abs_dc_diff) {
+        int sign_dc_diff = oapv_get_sign32(dc_diff);
         oapv_bsw_write1(bs, sign_dc_diff);
+        *kparam_dc = KPARAM_DC(abs_dc_diff);
 
-    core->prev_dc_ctx[c] = abs_dc_diff;
+    }
+    else {
+        *kparam_dc = OAPV_KPARAM_DC_MIN;
+    }
     return OAPV_OK;
 }
 
@@ -640,14 +647,15 @@ void oapve_vlc_run_length_cc(oapve_ctx_t *ctx, oapve_core_t *core, oapv_bs_t *bs
         level = oapv_abs16(coef_cur);
         sign = (coef_cur > 0) ? 0 : 1;
 
-        rice_level = oapv_clip3(OAPV_KPARAM_DC_MIN, OAPV_KPARAM_DC_MAX, core->prev_dc_ctx[ch_type] >> 1);
+        enc_vlc_write(bs, level, core->kparam_dc[ch_type]);
 
-        enc_vlc_write(bs, level, rice_level);
-
-        if(level)
+        if(level) {
             oapv_bsw_write1(bs, sign);
-
-        core->prev_dc_ctx[ch_type] = level;
+            core->kparam_dc[ch_type] = KPARAM_DC(level);
+        }
+        else {
+            core->kparam_dc[ch_type] = OAPV_KPARAM_DC_MIN;
+        }
     }
 
     for(scan_pos = 1; scan_pos < num_coeff; scan_pos++) {
@@ -849,8 +857,8 @@ int oapve_vlc_get_coef_rate(oapve_core_t* core, s16* coef, int c)
 
     // DC
     int level = oapv_abs32(coef[0] - core->prev_dc[c]);
-    int rice_level = oapv_abs32(core->prev_dc_ctx[c]) >> 1;
-    rice_level = oapv_clip3(OAPV_KPARAM_DC_MIN, OAPV_KPARAM_DC_MAX, rice_level);
+    int rice_level = core->kparam_dc[c];
+
     rate += get_vlc_rate(level, rice_level);
     if(level) {
         rate++;
@@ -909,10 +917,6 @@ int oapve_vlc_get_coef_rate(oapve_core_t* core, s16* coef, int c)
     (bit) = ((bs)->code >> 31) & 0x1;       \
     (bs)->code <<= 1;                       \
     (bs)->leftbits -= 1;
-
-#define KPARAM_DC(level)      oapv_min((level)>>1, OAPV_KPARAM_DC_MAX)
-#define KPARAM_AC(level)      oapv_min((level)>>2, OAPV_KPARAM_AC_MAX)
-#define KPARAM_RUN(run)       oapv_min((run)>>2, OAPV_KPARAM_RUN_MAX)
 
 static int dec_vlc_read_kparam0(oapv_bs_t *bs)
 {

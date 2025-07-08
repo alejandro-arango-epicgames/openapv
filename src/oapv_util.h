@@ -62,6 +62,10 @@
 // operation: if(val < 0) return 1, else return 0
 #define oapv_get_sign16(val)         (((val) >> 15) & 1)
 
+// macro to get a sign from a 32-bit value.
+// operation: if(val < 0) return 1, else return 0
+#define oapv_get_sign32(val)         (((val) >> 31) & 1)
+
 // macro to set sign to a 16-bit value.
 // operation: if(sign == 0) return val, else if(sign == 1) return -val
 #define oapv_set_sign16(val, sign)   (((val) ^ ((s16)((sign) << 15) >> 15)) + (sign))

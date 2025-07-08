@@ -795,7 +795,7 @@ static int enc_tile_comp(oapv_bs_t *bs, oapve_tile_t *tile, oapve_ctx_t *ctx, oa
                     ctx->fn_imgb_to_blk[c](o16, OAPV_BLK_W, OAPV_BLK_H, s_org, blk_x, (OAPV_BLK_W << 1), core->coef, ctx->bit_depth);
 
                     ctx->fn_enc_blk(ctx, core, OAPV_LOG2_BLK_W, OAPV_LOG2_BLK_H, c);
-                    oapve_vlc_dc_coef(ctx, core, bs, core->dc_diff, c);
+                    oapve_vlc_dc_coef(bs, core->dc_diff, &core->kparam_dc[c]);
                     oapve_vlc_ac_coef(ctx, core, bs, core->coef, 0, c);
                     DUMP_COEF(core->coef, OAPV_BLK_D, blk_x, blk_y, c);
 
@@ -867,8 +867,11 @@ static int enc_tile(oapve_ctx_t *ctx, oapve_core_t *core, oapve_tile_t *tile)
     }
 
     for(int c = 0; c < ctx->num_comp; c++) {
-        core->prev_dc_ctx[c] = 20;
         core->prev_1st_ac_ctx[c] = 0;
+        core->prev_dc[c] = 0;
+
+        core->kparam_dc[c] = OAPV_KPARAM_DC_MAX;
+        core->kparam_ac[c] = OAPV_KPARAM_AC_MIN;
         core->prev_dc[c] = 0;
 
         int  tc, s_org, s_rec;
