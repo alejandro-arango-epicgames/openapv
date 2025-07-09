@@ -916,7 +916,6 @@ static int enc_tile(oapve_ctx_t *ctx, oapve_core_t *core, oapve_tile_t *tile)
     tile->bs_size = bs_size;
 
     oapv_bs_t bs_th;
-    bs_th.is_bin_count = 0;
     oapv_bsw_init(&bs_th, tile->bs_buf, tile->bs_size, NULL);
     tile->tile_size = bs_size - OAPV_TILE_SIZE_LEN;
 

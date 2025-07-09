@@ -47,8 +47,6 @@ struct oapv_bs {
     oapv_bs_fn_flush_t fn_flush; // function pointer for flush operation
     int                ndata[4]; // arbitrary data, if needs
     void              *pdata[4]; // arbitrary address, if needs
-    char               is_bin_count;
-    u32                bin_count;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

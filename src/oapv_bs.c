@@ -62,8 +62,6 @@ void oapv_bsw_init(oapv_bs_t *bs, u8 *buf, int size, oapv_bs_fn_flush_t fn_flush
     bs->code = 0;
     bs->leftbits = 32;
     bs->fn_flush = (fn_flush == NULL ? bsw_flush : fn_flush);
-    bs->is_bin_count = 0;
-    bs->bin_count = 0;
 }
 
 void oapv_bsw_deinit(oapv_bs_t *bs)
@@ -99,11 +97,6 @@ int oapv_bsw_write1(oapv_bs_t *bs, int val)
 {
     oapv_assert(bs);
 
-    if(bs->is_bin_count) {
-        bs->bin_count++;
-        return 0;
-    }
-
     bs->leftbits--;
     bs->code |= ((val & 0x1) << bs->leftbits);
 
@@ -123,11 +116,6 @@ int oapv_bsw_write(oapv_bs_t *bs, u32 val, int len) /* len(1 ~ 32) */
     int leftbits;
 
     oapv_assert(bs);
-
-    if(bs->is_bin_count) {
-        bs->bin_count += len;
-        return 0;
-    }
 
     leftbits = bs->leftbits;
     val <<= (32 - len);
