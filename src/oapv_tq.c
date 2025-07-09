@@ -229,10 +229,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
         if(rice_run > 2) {
             rice_run = 2;
         }
-        rice_level = prev_level >> 2;
-        if(rice_level > 4) {
-            rice_level = OAPV_KPARAM_AC_MAX;
-        }
+        rice_level = KPARAM_AC(prev_level);
 
         for(tmp_level = max_level; tmp_level >= min_level; tmp_level--) {
             if(tmp_level == 0) {
