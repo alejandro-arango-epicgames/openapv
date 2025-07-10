@@ -32,16 +32,6 @@
 #include "oapv_def.h"
 #include "oapv_metadata.h"
 
-#define OAPV_FLUSH_SWAP(cur, code, lb) \
-    {                                  \
-        *cur++ = (code >> 24) & 0xFF;  \
-        *cur++ = (code >> 16) & 0xFF;  \
-        *cur++ = (code >> 8) & 0xFF;   \
-        *cur++ = (code) & 0xFF;        \
-        code = 0;                      \
-        lb = 32;                       \
-    }
-
 ///////////////////////////////////////////////////////////////////////////////
 // start of encoder code
 #if ENABLE_ENCODER
@@ -207,31 +197,29 @@ void oapve_vlc_ac_coef(oapv_bs_t* bs, s16* coef, int * kparam_ac)
         c = coef[scanp[scan_pos]];
         if(c) {
             // run coding
-            if(run == 0) { // early termination
-                code64  = (1 << k_run);
-                total_nbits = (1 + k_run);
-                k_run = OAPV_KPARAM_RUN_MIN;
+            if(run < 100) { // early termination
+                total_nbits = oapve_tbl_vlc_code[run][k_run][0];
+                code64 = oapve_tbl_vlc_code[run][k_run][1];
             }
             else {
                 code64 = enc_vlc_write_to_code(bs, run, k_run, &total_nbits);
-                k_run = KPARAM_RUN(run); // update kparam for run
             }
+            k_run = KPARAM_RUN(run); // update kparam for run
             run = 0; // reset run
 
             // level and sign coding
             level = oapv_abs16(c);
-            sign  = oapv_get_sign16(c);
-
-            if(level == 1) { // early termination
-                nbits = (1 + k_ac);
-                code64 = (((code64 << nbits) | (1 << k_ac)) << 1) | sign;
-                k_ac = OAPV_KPARAM_AC_MIN;
+            if(level < 101) { // early termination
+                nbits = oapve_tbl_vlc_code[level - 1][k_ac][0];
+                code  = oapve_tbl_vlc_code[level - 1][k_ac][1];
             }
             else {
                 code = enc_vlc_write_to_code(bs, level - 1, k_ac, &nbits);
-                code64 = (((code64 << nbits) | code) << 1) | sign;
-                k_ac = KPARAM_AC(level);
             }
+            k_ac = KPARAM_AC(level);
+            sign  = oapv_get_sign16(c);
+
+            code64 = (((code64 << nbits) | code) << 1) | sign;
             total_nbits += nbits + 1; // 1 is for sign
 
             if (first_ac) {
@@ -498,7 +486,7 @@ static __inline int get_vlc_rate(int val, int k)
 {
     if (val < 100 && k < 5)
     {
-        return CODE_LUT_100[val][k][1];
+        return oapve_tbl_vlc_code[val][k][0];
     }
 
     int code_len = 0;
