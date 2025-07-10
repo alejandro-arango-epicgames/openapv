@@ -42,6 +42,7 @@
 
 #include "oapv.h"
 #include "oapv_port.h"
+#include "oapv_bs.h"
 #include "oapv_tpool.h"
 
 /* oapv encoder magic code */
@@ -229,7 +230,6 @@ struct oapve_core {
     int          kparam_ac[N_C];
     int          prev_dc[N_C];
 
-    int          prev_1st_ac_ctx[N_C];
     int          tile_idx;
 
     int          dc_diff; /* DC difference, which is represented in 17 bits */
@@ -246,8 +246,6 @@ struct oapve_core {
     /* platform specific data, if needed */
     void        *pf;
 };
-
-#include "oapv_bs.h"
 
 typedef struct oapve_tile oapve_tile_t;
 struct oapve_tile {
