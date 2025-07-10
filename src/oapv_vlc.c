@@ -198,8 +198,8 @@ void oapve_vlc_ac_coef(oapv_bs_t* bs, s16* coef, int * kparam_ac)
         if(c) {
             // run coding
             if(run < 100) { // early termination
-                total_nbits = oapve_tbl_vlc_code[run][k_run][0];
-                code64 = oapve_tbl_vlc_code[run][k_run][1];
+                code64 = oapve_tbl_vlc_code[run][k_run][0];
+                total_nbits = oapve_tbl_vlc_code[run][k_run][1];
             }
             else {
                 code64 = enc_vlc_write_to_code(bs, run, k_run, &total_nbits);
@@ -210,8 +210,8 @@ void oapve_vlc_ac_coef(oapv_bs_t* bs, s16* coef, int * kparam_ac)
             // level and sign coding
             level = oapv_abs16(c);
             if(level < 101) { // early termination
-                nbits = oapve_tbl_vlc_code[level - 1][k_ac][0];
-                code  = oapve_tbl_vlc_code[level - 1][k_ac][1];
+                code  = oapve_tbl_vlc_code[level - 1][k_ac][0];
+                nbits = oapve_tbl_vlc_code[level - 1][k_ac][1];
             }
             else {
                 code = enc_vlc_write_to_code(bs, level - 1, k_ac, &nbits);
@@ -486,7 +486,7 @@ static __inline int get_vlc_rate(int val, int k)
 {
     if (val < 100 && k < 5)
     {
-        return oapve_tbl_vlc_code[val][k][0];
+        return oapve_tbl_vlc_code[val][k][1];
     }
 
     int code_len = 0;
