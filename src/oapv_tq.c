@@ -127,7 +127,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
     s32 rice_level = 0;
     s32 rice_run = 0;
     s32 prev_run = 0;
-    s32 prev_level = core->prev_1st_ac_ctx[ch_type];
+    int k_ac = core->kparam_ac[ch_type];
     s16 tmp_coef[OAPV_BLK_D];
     s64 tmp_level_double[OAPV_BLK_D];
     double best_cost = 0;
@@ -229,7 +229,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
         if(rice_run > 2) {
             rice_run = 2;
         }
-        rice_level = KPARAM_AC(prev_level);
+        rice_level = k_ac;
 
         for(tmp_level = max_level; tmp_level >= min_level; tmp_level--) {
             if(tmp_level == 0) {
@@ -261,7 +261,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
 
         if(dst_coef[blk_pos]) {
             prev_run = run;
-            prev_level = abs(dst_coef[blk_pos]);
+            k_ac = KPARAM_AC(oapv_abs(dst_coef[blk_pos]));
             run = 0;
             nnz++;
         }

@@ -45,7 +45,6 @@ int  oapve_vlc_frame_header(oapv_bs_t* bs, oapve_ctx_t* ctx, oapv_fh_t* fh);
 int  oapve_vlc_tile_size(oapv_bs_t* bs, int tile_size);
 void oapve_set_tile_header(oapve_ctx_t* ctx, oapv_th_t* th, int tile_idx, int qp);
 int  oapve_vlc_tile_header(oapve_ctx_t* ctx, oapv_bs_t* bs, oapv_th_t* th);
-void oapve_vlc_run_length_cc(oapve_ctx_t* ctx, oapve_core_t* core, oapv_bs_t* bs, s16* coef, int log2_w, int log2_h, int num_sig, int ch_type);
 int  oapve_vlc_metadata(oapv_md_t* md, oapv_bs_t* bs);
 int  oapve_vlc_au_info(oapv_bs_t* bs, oapve_ctx_t* ctx, oapv_frms_t* frms, oapv_bs_t** bs_fi_pos);
 int  oapve_vlc_pbu_header(oapv_bs_t* bs, int pbu_type, int group_id);
