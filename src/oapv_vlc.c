@@ -36,19 +36,50 @@
 // start of encoder code
 #if ENABLE_ENCODER
 ///////////////////////////////////////////////////////////////////////////////
-#define BSW_FLUSH_4BYTE(bs)                   \
-    {                                         \
-        *bs->cur++ = (bs->code >> 24) & 0xFF; \
-        *bs->cur++ = (bs->code >> 16) & 0xFF; \
-        *bs->cur++ = (bs->code >> 8) & 0xFF;  \
-        *bs->cur++ = (bs->code) & 0xFF;       \
-        bs->code = 0;                         \
-        bs->leftbits = 32;                    \
+#define BSW_FLUSH_4BYTE(bs) {                     \
+        *(bs)->cur++ = ((bs)->code >> 24) & 0xFF; \
+        *(bs)->cur++ = ((bs)->code >> 16) & 0xFF; \
+        *(bs)->cur++ = ((bs)->code >> 8) & 0xFF;  \
+        *(bs)->cur++ = ((bs)->code) & 0xFF;       \
+        (bs)->code = 0;                           \
+        (bs)->leftbits = 32;                      \
     }
 
-#define ADD_BITS(val, nb, code) { \
-    (code) = ((code) << (nb) | (val)); \
-}
+#define BSW_WRITE_32BITS(bs, code32, nbits) { \
+        (code32) <<= (32 - (nbits)); \
+        if(nbits < (bs)->leftbits) { \
+            (bs)->code |= ((code32) >> (32 - (bs)->leftbits)); \
+            (bs)->leftbits -= (nbits); \
+        } \
+        else { \
+            (bs)->code |= ((code32) >> (32 - (bs)->leftbits)); \
+            (code32) <<= (bs)->leftbits; \
+            (nbits) -= (bs)->leftbits; \
+            BSW_FLUSH_4BYTE(bs); \
+            if((nbits) > 0) { \
+                (bs)->code |= ((code32) >> (32 - (bs)->leftbits)); \
+                (bs)->leftbits -= (nbits); \
+            } \
+        } \
+    }
+
+#define BSW_WRITE_64BITS(bs, code64, nbits) { \
+        (code64) <<= (64 - nbits); \
+        while((nbits) >= (bs)->leftbits) { \
+            (bs)->code |= ((code64) >> (64 - (bs)->leftbits)); \
+            (code64) <<= (bs)->leftbits; \
+            (nbits) -= (bs)->leftbits; \
+            BSW_FLUSH_4BYTE(bs); \
+        } \
+        if((nbits) > 0) { \
+            (bs)->code |= ((code64) >> (64 - (bs)->leftbits)); \
+            (bs)->leftbits -= (nbits); \
+        } \
+    }
+
+#define ADD_BITS_TO_CODE(val, nb, code) {  \
+        (code) = ((code) << (nb) | (val)); \
+    }
 
 static const u8 enc_prefix_vlc[3][2] = {{1, 0xFF}, {0, 0}, {0, 1}}; // 0xFF is don't care
 
@@ -62,40 +93,27 @@ static void enc_vlc_write(oapv_bs_t *bs, int val, int k)
     while(symbol >= (1 << k)) {
         symbol -= (1 << k);
         if(nb < 2) {
-            ADD_BITS(enc_prefix_vlc[vlc_idx][nb], 1, code);
+            ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
         }
         else {
-            ADD_BITS(0, 1, code);
+            ADD_BITS_TO_CODE(0, 1, code);
             k++;
         }
         nb++;
     }
     if(nb < 2) {
-        ADD_BITS(enc_prefix_vlc[vlc_idx][nb], 1, code);
+        ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
     }
     else {
-        ADD_BITS(1, 1, code);
+        ADD_BITS_TO_CODE(1, 1, code);
     }
     nb++;
     if(k > 0) {
-        ADD_BITS(symbol, k, code);
+        ADD_BITS_TO_CODE(symbol, k, code);
         nb += k;
     }
-    code <<= (32 - nb);
-
-    u32 cc;
-    while(nb >= bs->leftbits) {
-        cc = (u32)(code >> (32 - bs->leftbits));
-        bs->code |= (cc);
-        code <<= bs->leftbits;
-        nb -= bs->leftbits;
-        BSW_FLUSH_4BYTE(bs);
-    }
-    if(nb > 0) {
-        cc = (u32)(code >> (32 - nb));
-        bs->code |= (cc << (bs->leftbits - nb));
-        bs->leftbits -= nb;
-    }
+    // write to bitstream buffer
+    BSW_WRITE_32BITS(bs, code, nb);
 }
 
 static u32 enc_vlc_write_to_code(oapv_bs_t *bs, int val, int k, int *nbits)
@@ -108,24 +126,24 @@ static u32 enc_vlc_write_to_code(oapv_bs_t *bs, int val, int k, int *nbits)
     while(symbol >= (1 << k)) {
         symbol -= (1 << k);
         if(nb < 2) {
-            ADD_BITS(enc_prefix_vlc[vlc_idx][nb], 1, code);
+            ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
         }
         else {
-            ADD_BITS(0, 1, code);
+            ADD_BITS_TO_CODE(0, 1, code);
             k++;
         }
         nb++;
     }
     if(nb < 2) {
-        ADD_BITS(enc_prefix_vlc[vlc_idx][nb], 1, code);
+        ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
     }
     else {
-        ADD_BITS(1, 1, code);
+        ADD_BITS_TO_CODE(1, 1, code);
 
     }
     nb++;
     if(k > 0) {
-        ADD_BITS(symbol, k, code);
+        ADD_BITS_TO_CODE(symbol, k, code);
         nb += k;
     }
     *nbits = nb;
@@ -165,25 +183,27 @@ static int enc_vlc_tile_info(oapv_bs_t *bs, oapve_ctx_t *ctx, oapv_fh_t *fh)
 
 int oapve_vlc_dc_coef(oapv_bs_t *bs, int dc_diff, int *kparam_dc)
 {
+    u32 code;
+    int nbits;
     int abs_dc_diff = oapv_abs32(dc_diff);
 
-    enc_vlc_write(bs, abs_dc_diff, *kparam_dc);
+    code = enc_vlc_write_to_code(bs, abs_dc_diff, *kparam_dc, &nbits);
 
     if(abs_dc_diff) {
         int sign_dc_diff = oapv_get_sign32(dc_diff);
-        oapv_bsw_write1(bs, sign_dc_diff);
+        ADD_BITS_TO_CODE(sign_dc_diff, 1, code);
         *kparam_dc = KPARAM_DC(abs_dc_diff);
-
+        nbits++;
     }
     else {
         *kparam_dc = OAPV_KPARAM_DC_MIN;
     }
+    BSW_WRITE_32BITS(bs, code, nbits);
     return OAPV_OK;
 }
 
 void oapve_vlc_ac_coef(oapv_bs_t* bs, s16* coef, int * kparam_ac)
 {
-    u64       code64;
     int       scan_pos, first_ac = 1;
     int       sign, level, run = 0;
     s16       c;
@@ -191,21 +211,17 @@ void oapve_vlc_ac_coef(oapv_bs_t* bs, s16* coef, int * kparam_ac)
     int       k_run = OAPV_KPARAM_RUN_MIN;
     int       k_ac = *kparam_ac;
     u32       code;
-    int       nbits, total_nbits;
+    int       nbits;
 
     for (scan_pos = 1; scan_pos < OAPV_BLK_D; scan_pos++) {
         c = coef[scanp[scan_pos]];
         if(c) {
             // run coding
-            if(run < 100) { // early termination
-                code64 = oapve_tbl_vlc_code[run][k_run][0];
-                total_nbits = oapve_tbl_vlc_code[run][k_run][1];
-            }
-            else {
-                code64 = enc_vlc_write_to_code(bs, run, k_run, &total_nbits);
-            }
+            code = oapve_tbl_vlc_code[run][k_run][0];
+            nbits = oapve_tbl_vlc_code[run][k_run][1];
             k_run = KPARAM_RUN(run); // update kparam for run
             run = 0; // reset run
+            BSW_WRITE_32BITS(bs, code, nbits);
 
             // level and sign coding
             level = oapv_abs16(c);
@@ -217,37 +233,23 @@ void oapve_vlc_ac_coef(oapv_bs_t* bs, s16* coef, int * kparam_ac)
                 code = enc_vlc_write_to_code(bs, level - 1, k_ac, &nbits);
             }
             k_ac = KPARAM_AC(level);
-            sign  = oapv_get_sign16(c);
-
-            code64 = (((code64 << nbits) | code) << 1) | sign;
-            total_nbits += nbits + 1; // 1 is for sign
-
             if (first_ac) {
                 first_ac = 0;
                 *kparam_ac = k_ac;
             }
-
-            code64 <<= (64 - total_nbits);
-
-            while(total_nbits >= bs->leftbits) {
-                code = (u32)(code64 >> (64 - bs->leftbits));
-                bs->code |= (code);
-                code64 <<= bs->leftbits;
-                total_nbits -= bs->leftbits;
-                BSW_FLUSH_4BYTE(bs);
-            }
-            if(total_nbits > 0) {
-                code = (u32)(code64 >> (64 - total_nbits));
-                bs->code |= (code << (bs->leftbits - total_nbits));
-                bs->leftbits -= total_nbits;
-            }
+            sign  = oapv_get_sign16(c);
+            ADD_BITS_TO_CODE(sign, 1, code);
+            nbits++;
+            BSW_WRITE_32BITS(bs, code, nbits);
         }
         else { // zero coefficent value
             run++;
         }
     }
     if(run > 0) { // last position can be zero
-        enc_vlc_write(bs, run, k_run);
+        code = oapve_tbl_vlc_code[run][k_run][0];
+        nbits = oapve_tbl_vlc_code[run][k_run][1];
+        BSW_WRITE_32BITS(bs, code, nbits);
     }
 }
 
@@ -593,16 +595,16 @@ int oapve_vlc_get_coef_rate(oapve_core_t* core, s16* coef, int c)
 // start of decoder code
 #if ENABLE_DECODER
 ///////////////////////////////////////////////////////////////////////////////
-#define BSR_FLUSH_1BYTE(bs)                 \
-    {                                       \
-        (bs)->code = *((bs)->cur++) << 24;  \
-        (bs)->leftbits = 8;                 \
+#define BSR_FLUSH_1BYTE(bs) {                   \
+        (bs)->code = *((bs)->cur++) << 24;      \
+        (bs)->leftbits = 8;                     \
     }
 
-#define BSR_READ_1BIT(bs, bit)              \
-    (bit) = ((bs)->code >> 31) & 0x1;       \
-    (bs)->code <<= 1;                       \
-    (bs)->leftbits -= 1;
+#define BSR_READ_1BIT(bs, bit) {                \
+        (bit) = ((bs)->code >> 31) & 0x1;       \
+        (bs)->code <<= 1;                       \
+        (bs)->leftbits -= 1;                    \
+    }
 
 static int dec_vlc_read_kparam0(oapv_bs_t *bs)
 {
