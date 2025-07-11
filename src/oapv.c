@@ -962,6 +962,8 @@ static int enc_profile_spec[][5] = {
     // {profile-idc, cfi-min, cfi-max, bit-depth-min, bit-depth-max}
     {OAPV_PROFILE_422_10, 2, 2, 10, 10},
     {OAPV_PROFILE_422_12, 2, 2, 10, 12},
+    {OAPV_PROFILE_444_10, 2, 3, 10, 10},
+    {OAPV_PROFILE_4444_10, 2, 4, 10, 10},
     {OAPV_PROFILE_400_10, 0, 0, 10, 10},
     {0, 0, 0, 0, 0} // termination
 };
