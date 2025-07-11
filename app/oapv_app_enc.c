@@ -531,7 +531,7 @@ static void print_stat_au(oapve_stat_t *stat, int au_cnt, oapve_param_t *param, 
 
 static void print_stat_frms(oapve_stat_t *stat, oapv_frms_t *ifrms, oapv_frms_t *rfrms, double psnr_avg[MAX_NUM_FRMS][MAX_NUM_CC])
 {
-    int              i, j;
+    int              i, j, cfmt;
     oapv_frm_info_t *finfo;
     double           psnr[MAX_NUM_FRMS][MAX_NUM_CC] = { 0 };
 
@@ -563,10 +563,22 @@ static void print_stat_frms(oapve_stat_t *stat, oapv_frms_t *ifrms, oapv_frms_t 
                                  : finfo[i].pbu_type == OAPV_PBU_TYPE_DEPTH_FRAME ? "DEPTH"
                                  : finfo[i].pbu_type == OAPV_PBU_TYPE_ALPHA_FRAME ? "ALPHA"
                                  : "UNKNOWN";
-        // clang-format on
 
-        logv3("- FRM %-2d GID %-5d %-11s %9d-bytes %8.4fdB %8.4fdB %8.4fdB\n",
-              i, finfo[i].group_id, str_frm_type, stat->frm_size[i], psnr[i][0], psnr[i][1], psnr[i][2]);
+        cfmt = OAPV_CS_GET_FORMAT(finfo[i].cs);
+
+        // clang-format on
+        if (cfmt == OAPV_CF_YCBCR400) { // 1 channel
+            logv3("- FRM %-2d GID %-5d %-11s %9d-bytes %8.4fdB\n",
+                i, finfo[i].group_id, str_frm_type, stat->frm_size[i], psnr[i][0]);
+        }
+        else if (cfmt == OAPV_CF_YCBCR4444) { // 4 channels
+            logv3("- FRM %-2d GID %-5d %-11s %9d-bytes %8.4fdB %8.4fdB %8.4fdB %8.4fdB\n",
+                i, finfo[i].group_id, str_frm_type, stat->frm_size[i], psnr[i][0], psnr[i][1], psnr[i][2], psnr[i][3]);
+        }
+        else { // 3 channels
+            logv3("- FRM %-2d GID %-5d %-11s %9d-bytes %8.4fdB %8.4fdB %8.4fdB\n",
+                i, finfo[i].group_id, str_frm_type, stat->frm_size[i], psnr[i][0], psnr[i][1], psnr[i][2]);
+        }
     }
     fflush(stdout);
     fflush(stderr);
@@ -875,8 +887,12 @@ int main(int argc, const char **argv)
     memset(&ifrms, 0, sizeof(oapv_frm_t));
     memset(&rfrms, 0, sizeof(oapv_frm_t));
 
-    int codec_depth = (param->profile_idc == OAPV_PROFILE_422_10 || param->profile_idc == OAPV_PROFILE_400_10) ? 10 :
-                       param->profile_idc == OAPV_PROFILE_422_12 ? 12 : 0;
+    int codec_depth = (param->profile_idc == OAPV_PROFILE_422_10 ||
+        param->profile_idc == OAPV_PROFILE_400_10 ||
+        param->profile_idc == OAPV_PROFILE_444_10 ||
+        param->profile_idc == OAPV_PROFILE_4444_10) ? 10 :
+        (param->profile_idc == OAPV_PROFILE_422_12) ? 12 : 0;
+
     if (codec_depth == 0) {
         logerr("ERR: invalid profile\n");
         ret = -1;
@@ -1016,29 +1032,40 @@ int main(int argc, const char **argv)
 
     logv2_line("Summary");
     psnr_avg[FRM_IDX][0] /= au_cnt;
-    psnr_avg[FRM_IDX][1] /= au_cnt;
-    psnr_avg[FRM_IDX][2] /= au_cnt;
-    if(cfmt == OAPV_CF_YCBCR4444) {
-        psnr_avg[FRM_IDX][3] /= au_cnt;
+    if (cfmt != OAPV_CF_YCBCR400) {
+        psnr_avg[FRM_IDX][1] /= au_cnt;
+        psnr_avg[FRM_IDX][2] /= au_cnt;
+        if (cfmt == OAPV_CF_YCBCR4444) {
+            psnr_avg[FRM_IDX][3] /= au_cnt;
+        }
     }
 
     logv3("  PSNR Y(dB)       : %-5.4f\n", psnr_avg[FRM_IDX][0]);
-    logv3("  PSNR U(dB)       : %-5.4f\n", psnr_avg[FRM_IDX][1]);
-    logv3("  PSNR V(dB)       : %-5.4f\n", psnr_avg[FRM_IDX][2]);
-    if(cfmt == OAPV_CF_YCBCR4444) {
-        logv3("  PSNR T(dB)       : %-5.4f\n", psnr_avg[FRM_IDX][3]);
+    if (cfmt != OAPV_CF_YCBCR400) {
+        logv3("  PSNR U(dB)       : %-5.4f\n", psnr_avg[FRM_IDX][1]);
+        logv3("  PSNR V(dB)       : %-5.4f\n", psnr_avg[FRM_IDX][2]);
+        if (cfmt == OAPV_CF_YCBCR4444) {
+            logv3("  PSNR T(dB)       : %-5.4f\n", psnr_avg[FRM_IDX][3]);
+        }
     }
     logv3("  Total bits(bits) : %.0f\n", bitrate_tot * 8);
     bitrate_tot *= (((float)param->fps_num / param->fps_den) * 8);
     bitrate_tot /= au_cnt;
     bitrate_tot /= 1000;
 
-    logv3("  -----------------: bitrate(kbps)\tPSNR-Y\tPSNR-U\tPSNR-V\n");
-    if(cfmt == OAPV_CF_YCBCR4444) {
+    
+    if (cfmt == OAPV_CF_YCBCR400) { // 1-channel
+        logv3("  -----------------: bitrate(kbps)\tPSNR-Y\n");
+        logv3("  Summary          : %-4.4f\t%-5.4f\n",
+            bitrate_tot, psnr_avg[FRM_IDX][0]);
+    }
+    else if(cfmt == OAPV_CF_YCBCR4444) { // 4-channel
+        logv3("  -----------------: bitrate(kbps)\tPSNR-Y\tPSNR-U\tPSNR-V\tPSNR-T\n");
         logv3("  Summary          : %-4.4f\t%-5.4f\t%-5.4f\t%-5.4f\t%-5.4f\n",
               bitrate_tot, psnr_avg[FRM_IDX][0], psnr_avg[FRM_IDX][1], psnr_avg[FRM_IDX][2], psnr_avg[FRM_IDX][3]);
     }
-    else {
+    else { // 3-channel
+        logv3("  -----------------: bitrate(kbps)\tPSNR-Y\tPSNR-U\tPSNR-V\n");
         logv3("  Summary          : %-5.4f\t%-5.4f\t%-5.4f\t%-5.4f\n",
               bitrate_tot, psnr_avg[FRM_IDX][0], psnr_avg[FRM_IDX][1], psnr_avg[FRM_IDX][2]);
     }
