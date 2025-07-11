@@ -47,7 +47,7 @@
 
 #define BSW_WRITE_32BITS(bs, code32, nbits) { \
         (code32) <<= (32 - (nbits)); \
-        if(nbits < (bs)->leftbits) { \
+        if((nbits) < (bs)->leftbits) { \
             (bs)->code |= ((code32) >> (32 - (bs)->leftbits)); \
             (bs)->leftbits -= (nbits); \
         } \
@@ -77,9 +77,7 @@
         } \
     }
 
-#define ADD_BITS_TO_CODE(val, nb, code) {  \
-        (code) = ((code) << (nb) | (val)); \
-    }
+#define ADD_BITS_TO_CODE(val, nb, code) ((code) << (nb) | (val))
 
 static const u8 enc_prefix_vlc[3][2] = {{1, 0xFF}, {0, 0}, {0, 1}}; // 0xFF is don't care
 
@@ -93,23 +91,23 @@ static void enc_vlc_write(oapv_bs_t *bs, int val, int k)
     while(symbol >= (1 << k)) {
         symbol -= (1 << k);
         if(nb < 2) {
-            ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
+            code = ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
         }
         else {
-            ADD_BITS_TO_CODE(0, 1, code);
+            code = ADD_BITS_TO_CODE(0, 1, code);
             k++;
         }
         nb++;
     }
     if(nb < 2) {
-        ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
+        code = ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
     }
     else {
-        ADD_BITS_TO_CODE(1, 1, code);
+        code = ADD_BITS_TO_CODE(1, 1, code);
     }
     nb++;
     if(k > 0) {
-        ADD_BITS_TO_CODE(symbol, k, code);
+        code = ADD_BITS_TO_CODE(symbol, k, code);
         nb += k;
     }
     // write to bitstream buffer
@@ -126,24 +124,24 @@ static u32 enc_vlc_write_to_code(oapv_bs_t *bs, int val, int k, int *nbits)
     while(symbol >= (1 << k)) {
         symbol -= (1 << k);
         if(nb < 2) {
-            ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
+            code = ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
         }
         else {
-            ADD_BITS_TO_CODE(0, 1, code);
+            code = ADD_BITS_TO_CODE(0, 1, code);
             k++;
         }
         nb++;
     }
     if(nb < 2) {
-        ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
+        code = ADD_BITS_TO_CODE(enc_prefix_vlc[vlc_idx][nb], 1, code);
     }
     else {
-        ADD_BITS_TO_CODE(1, 1, code);
+        code = ADD_BITS_TO_CODE(1, 1, code);
 
     }
     nb++;
     if(k > 0) {
-        ADD_BITS_TO_CODE(symbol, k, code);
+        code = ADD_BITS_TO_CODE(symbol, k, code);
         nb += k;
     }
     *nbits = nb;
@@ -191,7 +189,7 @@ int oapve_vlc_dc_coef(oapv_bs_t *bs, int dc_diff, int *kparam_dc)
 
     if(abs_dc_diff) {
         int sign_dc_diff = oapv_get_sign32(dc_diff);
-        ADD_BITS_TO_CODE(sign_dc_diff, 1, code);
+        code = ADD_BITS_TO_CODE(sign_dc_diff, 1, code);
         *kparam_dc = KPARAM_DC(abs_dc_diff);
         nbits++;
     }
@@ -238,7 +236,7 @@ void oapve_vlc_ac_coef(oapv_bs_t* bs, s16* coef, int * kparam_ac)
                 *kparam_ac = k_ac;
             }
             sign  = oapv_get_sign16(c);
-            ADD_BITS_TO_CODE(sign, 1, code);
+            code = ADD_BITS_TO_CODE(sign, 1, code);
             nbits++;
             BSW_WRITE_32BITS(bs, code, nbits);
         }
