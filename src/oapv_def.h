@@ -42,6 +42,7 @@
 
 #include "oapv.h"
 #include "oapv_port.h"
+#include "oapv_bs.h"
 #include "oapv_tpool.h"
 
 /* oapv encoder magic code */
@@ -224,11 +225,13 @@ typedef struct oapve_rc_tile {
 struct oapve_core {
     ALIGNED_16(s16 coef[OAPV_BLK_D]);
     ALIGNED_16(s16 coef_rec[OAPV_BLK_D]);
-    oapve_ctx_t *ctx;
-    int          prev_dc_ctx[N_C];
-    int          prev_1st_ac_ctx[N_C];
-    int          tile_idx;
+
+    int          kparam_dc[N_C];
+    int          kparam_ac[N_C];
     int          prev_dc[N_C];
+
+    int          tile_idx;
+
     int          dc_diff; /* DC difference, which is represented in 17 bits */
                           /* and coded as abs_dc_coeff_diff and sign_dc_coeff_diff */
     int          qp[N_C]; // QPs for Y, Cb(U), Cr(V)
@@ -238,11 +241,11 @@ struct oapve_core {
     s16          q_mat_dec[N_C][OAPV_BLK_D];
     double       err_scale_tbl[N_C][OAPV_BLK_D];
     int          thread_idx;
+
+    oapve_ctx_t *ctx;
     /* platform specific data, if needed */
     void        *pf;
 };
-
-#include "oapv_bs.h"
 
 typedef struct oapve_tile oapve_tile_t;
 struct oapve_tile {

@@ -127,7 +127,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
     s32 rice_level = 0;
     s32 rice_run = 0;
     s32 prev_run = 0;
-    s32 prev_level = core->prev_1st_ac_ctx[ch_type];
+    int k_ac = core->kparam_ac[ch_type];
     s16 tmp_coef[OAPV_BLK_D];
     s64 tmp_level_double[OAPV_BLK_D];
     double best_cost = 0;
@@ -163,7 +163,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
         return nnz;
     }
 
-    rice_level = oapv_clip3(OAPV_KPARAM_DC_MIN, OAPV_KPARAM_DC_MAX, core->prev_dc_ctx[ch_type] >> 1);
+    rice_level = core->kparam_dc[ch_type];
     rice_run = prev_run / 4;
     if(rice_run > 2) {
         rice_run = 2;
@@ -185,7 +185,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
         err1 = (double)tmp_level_double[blk_pos] * core->err_scale_tbl[ch_type][blk_pos];
         uncoded_cost = err1 * err1;
 
-        rice_level = oapv_clip3(OAPV_KPARAM_DC_MIN, OAPV_KPARAM_DC_MAX, core->prev_dc_ctx[ch_type] >> 1);
+        rice_level = core->kparam_dc[ch_type];
 
         for(tmp_level = max_level; tmp_level >= min_level; tmp_level--) {
             if(tmp_level == 0) {
@@ -229,10 +229,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
         if(rice_run > 2) {
             rice_run = 2;
         }
-        rice_level = prev_level >> 2;
-        if(rice_level > 4) {
-            rice_level = OAPV_KPARAM_AC_MAX;
-        }
+        rice_level = k_ac;
 
         for(tmp_level = max_level; tmp_level >= min_level; tmp_level--) {
             if(tmp_level == 0) {
@@ -264,7 +261,7 @@ int oapve_rdoq(oapve_core_t* core, s16 *src_coef, s16 *dst_coef, int log2_cuw, i
 
         if(dst_coef[blk_pos]) {
             prev_run = run;
-            prev_level = abs(dst_coef[blk_pos]);
+            k_ac = KPARAM_AC(oapv_abs(dst_coef[blk_pos]));
             run = 0;
             nnz++;
         }

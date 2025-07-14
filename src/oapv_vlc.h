@@ -35,6 +35,9 @@
 #include "oapv_def.h"
 #include "oapv_metadata.h"
 
+#define KPARAM_DC(level)      oapv_min((level)>>1, OAPV_KPARAM_DC_MAX)
+#define KPARAM_AC(level)      oapv_min((level)>>2, OAPV_KPARAM_AC_MAX)
+#define KPARAM_RUN(run)       oapv_min((run)>>2, OAPV_KPARAM_RUN_MAX)
 
 void oapve_set_frame_header(oapve_ctx_t * ctx, oapv_fh_t * fh);
 int  oapve_vlc_frame_info(oapv_bs_t* bs, oapv_fi_t* fi);
@@ -42,13 +45,12 @@ int  oapve_vlc_frame_header(oapv_bs_t* bs, oapve_ctx_t* ctx, oapv_fh_t* fh);
 int  oapve_vlc_tile_size(oapv_bs_t* bs, int tile_size);
 void oapve_set_tile_header(oapve_ctx_t* ctx, oapv_th_t* th, int tile_idx, int qp);
 int  oapve_vlc_tile_header(oapve_ctx_t* ctx, oapv_bs_t* bs, oapv_th_t* th);
-void oapve_vlc_run_length_cc(oapve_ctx_t* ctx, oapve_core_t* core, oapv_bs_t* bs, s16* coef, int log2_w, int log2_h, int num_sig, int ch_type);
 int  oapve_vlc_metadata(oapv_md_t* md, oapv_bs_t* bs);
 int  oapve_vlc_au_info(oapv_bs_t* bs, oapve_ctx_t* ctx, oapv_frms_t* frms, oapv_bs_t** bs_fi_pos);
 int  oapve_vlc_pbu_header(oapv_bs_t* bs, int pbu_type, int group_id);
 int  oapve_vlc_pbu_size(oapv_bs_t* bs, int pbu_size);
-void oapve_vlc_ac_coef(oapve_ctx_t* ctx, oapve_core_t* core, oapv_bs_t* bs, s16* coef, int num_sig, int ch_type);
-int  oapve_vlc_dc_coef(oapve_ctx_t* ctx, oapve_core_t* core, oapv_bs_t* bs, int dc_diff, int c);
+void oapve_vlc_ac_coef(oapv_bs_t* bs, s16* coef, int * kparam_ac);
+int  oapve_vlc_dc_coef(oapv_bs_t *bs, int dc_diff, int *kparam_dc);
 int  oapve_vlc_get_coef_rate(oapve_core_t* core, s16* coef, int c);
 double oapve_vlc_get_level_cost(int coef, int k, double lambda);
 double oapve_vlc_get_run_cost(int run, int k, double lambda);

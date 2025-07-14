@@ -29,8 +29,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _OAPV_TBL_H_
-#define _OAPV_TBL_H_
+#ifndef __OAPV_TBL_H_34243243243342435479875463453543543542432432__
+#define __OAPV_TBL_H_34243243243342435479875463453543543542432432__
 
 #include "oapv_def.h"
 
@@ -38,7 +38,7 @@ extern const u8  oapv_tbl_log2[257];
 extern const s8  oapv_tbl_tm8[8][8];
 extern const int oapv_tbl_dq_scale[6];
 extern const u8  oapv_tbl_scan[OAPV_BLK_D];
-extern const u32 CODE_LUT_100[100][5][2];
 extern int       oapv_itrans_diff[64][64];
+extern const u16 oapve_tbl_vlc_code[100][5][2];
 
-#endif /* _OAPV_TBL_H_ */
+#endif /* __OAPV_TBL_H_34243243243342435479875463453543543542432432__ */
