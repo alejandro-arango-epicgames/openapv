@@ -103,9 +103,9 @@ Decoding:
 
 Pattern file of APV bitstream for [ImHex](https://github.com/WerWolv/ImHex) is provided [here](/util/apv.hexpat).
 1. Install [ImHex](https://github.com/WerWolv/ImHex) application
-2. Download [APV pattern file](/util/apv.hexpat)
-2. Open APV bitstream (\*.apv file) with ImHex
-3. Import the APV pattern file on Pattern editor view of ImHex and apply
+2. Download [APV pattern file](/util/apv.hexpat) and copy it to 'patterns' directory of the ImHex application
+3. Open an APV bitstream (*.apv file) file with the ImHex application
+4. The APV pattern file will be selected automatically and press 'yes' to apply it
 
 ![APV_on_ImHex](/readme/img/apv_parser_on_imhex.png)
 
