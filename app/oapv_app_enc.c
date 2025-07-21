@@ -127,6 +127,10 @@ static const args_opt_t enc_args_opts[] = {
         "profile string\n"
         "      - 422-10: YCbCr422 10bit (default)\n"
         "      - 422-12; YCbCr422 12bit\n"
+        "      - 444-10: YCbCr444 10bit\n"
+        "      - 444-12; YCbCr444 12bit\n"
+        "      - 4444-10: YCbCr4444 10bit\n"
+        "      - 4444-12; YCbCr4444 12bit\n"
         "      - 400-10: YCbCr400 (monochrome) 10bit\n"
         "      Note: Color space and bit depth of input video will be converted\n"
         "            automatically to support the given profile, if needs\n"
@@ -890,8 +894,10 @@ int main(int argc, const char **argv)
     int codec_depth = (param->profile_idc == OAPV_PROFILE_422_10 ||
         param->profile_idc == OAPV_PROFILE_400_10 ||
         param->profile_idc == OAPV_PROFILE_444_10 ||
-        param->profile_idc == OAPV_PROFILE_4444_10) ? 10 :
-        (param->profile_idc == OAPV_PROFILE_422_12) ? 12 : 0;
+        param->profile_idc == OAPV_PROFILE_4444_10) ? 10 : (
+        param->profile_idc == OAPV_PROFILE_422_12 ||
+        param->profile_idc == OAPV_PROFILE_444_12 ||
+        param->profile_idc == OAPV_PROFILE_4444_12) ? 12 : 0;
 
     if (codec_depth == 0) {
         logerr("ERR: invalid profile\n");
@@ -963,6 +969,11 @@ int main(int argc, const char **argv)
 
             clk_end = oapv_clk_from(clk_beg);
             clk_tot += clk_end;
+
+            if(OAPV_FAILED(ret)) {
+                logerr("ERR: failed to encode (return: %d)\n", ret);
+                goto ERR;
+            }
 
             bitrate_tot += stat.frm_size[FRM_IDX];
 
@@ -1053,7 +1064,7 @@ int main(int argc, const char **argv)
     bitrate_tot /= au_cnt;
     bitrate_tot /= 1000;
 
-    
+
     if (cfmt == OAPV_CF_YCBCR400) { // 1-channel
         logv3("  -----------------: bitrate(kbps)\tPSNR-Y\n");
         logv3("  Summary          : %-4.4f\t%-5.4f\n",

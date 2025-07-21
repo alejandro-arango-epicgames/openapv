@@ -161,6 +161,10 @@ static int y4m_parse_tags(y4m_params_t *y4m, char *tags)
         y4m->color_format = OAPV_CF_YCBCR444;
         y4m->bit_depth = 10;
     }
+    else if(strcmp(colorspace, "444p12") == 0) {
+        y4m->color_format = OAPV_CF_YCBCR444;
+        y4m->bit_depth = 12;
+    }
     else if(strcmp(colorspace, "mono") == 0) {
         y4m->color_format = OAPV_CF_YCBCR400;
         y4m->bit_depth = 8;
@@ -257,6 +261,8 @@ static int write_y4m_header(char *fname, oapv_imgb_t *imgb)
             strcpy(c_buf, "444");
         else if(bit_depth == 10)
             strcpy(c_buf, "444p10");
+        else if(bit_depth == 12)
+            strcpy(c_buf, "444p12");
     }
     else if(color_format == OAPV_CF_YCBCR400) {
         if(bit_depth == 8)

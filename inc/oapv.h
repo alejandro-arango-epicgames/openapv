@@ -236,7 +236,9 @@ extern "C" {
 #define OAPV_PROFILE_422_10             (33)
 #define OAPV_PROFILE_422_12             (44)
 #define OAPV_PROFILE_444_10             (55)
+#define OAPV_PROFILE_444_12             (66)
 #define OAPV_PROFILE_4444_10            (77)
+#define OAPV_PROFILE_4444_12            (88)
 #define OAPV_PROFILE_400_10             (99)
 
 /*****************************************************************************
@@ -445,7 +447,9 @@ static const oapv_dict_str_int_t oapv_param_opts_profile[] = {
     {"422-10", OAPV_PROFILE_422_10},
     {"422-12", OAPV_PROFILE_422_12},
     {"444-10", OAPV_PROFILE_444_10},
+    {"444-12", OAPV_PROFILE_444_12},
     {"4444-10", OAPV_PROFILE_4444_10},
+    {"4444-12", OAPV_PROFILE_4444_12},
     {"400-10", OAPV_PROFILE_400_10},
     {"", 0} // termination
 };
