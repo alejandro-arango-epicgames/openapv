@@ -120,33 +120,3 @@ int oapv_get_num_cpu_cores(void)
 #endif
     return num_cores;
 }
-
-#if X86_SSE
-void *oapv_memset_x128_avx(void* dst, int value, size_t size) {
-    uint8_t* ptr = (uint8_t*)dst;
-    __m128i value_vec = _mm_set1_epi8((char)value);  // 16-byte (128-bit) vector
-
-    size_t i = 0;
-    // Store 128 units per iteration
-    for(; i + 128 < size; i += 128) {
-        _mm_store_si128((__m128i*)(ptr +   0), value_vec);
-        _mm_store_si128((__m128i*)(ptr +  16), value_vec);
-        _mm_store_si128((__m128i*)(ptr +  32), value_vec);
-        _mm_store_si128((__m128i*)(ptr +  48), value_vec);
-        _mm_store_si128((__m128i*)(ptr +  64), value_vec);
-        _mm_store_si128((__m128i*)(ptr +  80), value_vec);
-        _mm_store_si128((__m128i*)(ptr +  96), value_vec);
-        _mm_store_si128((__m128i*)(ptr + 112), value_vec);
-    }
-    // Remaining full 16-unit blocks
-    for (; i + 16 < size; i += 16) {
-        _mm_store_si128((__m128i*)(ptr+i), value_vec);
-    }
-
-    // Remaining tail
-    for (; i < size; ++i) {
-        ptr[i] = (uint8_t)value;
-    }
-    return dst;
-}
-#endif
