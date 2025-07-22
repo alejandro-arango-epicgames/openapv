@@ -5,6 +5,7 @@
 
 import std.io;
 import std.mem;
+import type.guid;
 
 /* PBU types */
 enum PbuType : u8 {
@@ -160,10 +161,17 @@ struct PbuFrm:PbuBase {
     u8 frameData[pbu_size - read] [[sealed]];
 };
 
-u32 metadata_payload_count = 0;
+/* Metadata payload types */
+enum MetadataPayloadType : u8 {
+    ITU_T_T35 = 4,
+    MDCV = 5,
+    CLL = 6,
+    FILLER = 10,
+    USER_DEFINED = 170
+};
 
-struct MetadataPayload {
-    str ptype_str = "";
+struct MetadataPayload_Base {
+    str mtype_str = "";
     u32 read = 0;
 
     u32 payloadType = get_0xff_ext_var($) [[export]];
@@ -175,21 +183,77 @@ struct MetadataPayload {
     $ += get_0xff_ext_var_bytes($); // update current reading point
 
     u64 endOffset = $ + payloadSize;
+};
 
-    if (payloadType == 4) ptype_str = "itu_t_t35";
-    else if (payloadType == 5) ptype_str = "mdcv";
-    else if (payloadType == 6) ptype_str = "cll";
-    else if (payloadType == 10) ptype_str = "filler";
-    else if (payloadType == 170) ptype_str = "user_defined";
-    else ptype_str = "undefined";
+struct MetadataPayload_T35:MetadataPayload_Base {
+    mtype_str ="ITU-T T.35";
+    u8 itu_t_t35_country_code;
+    if (itu_t_t35_country_code == 0xFF) {
+        u8 itu_t_t35_country_code_extension;
+        u8 itu_t_t35_payload[payloadSize - 2][[sealed]];
+    } else {
+        u8 itu_t_t35_payload[payloadSize - 1][[sealed]];
+    }
+};
 
-    std::print("    metadata payload[{:d}] type = {:d}({}), size = {:d}", metadata_payload_count, payloadType, ptype_str, payloadSize);
+struct MetadataPayload_Mdcv:MetadataPayload_Base {
+    mtype_str ="MDCV";
+    u16 primary_chromaticity_x0;
+    u16 primary_chromaticity_y0;
+    u16 primary_chromaticity_x1;
+    u16 primary_chromaticity_y1;
+    u16 primary_chromaticity_x2;
+    u16 primary_chromaticity_y2;
+    u16 white_point_chromaticity_x;
+    u16 white_point_chromaticity_y;
+    u32 max_mastering_luminance;
+    u32 min_mastering_luminance;
+};
 
-    u8 payloadData[while($ < endOffset)] [[sealed]];
+struct MetadataPayload_Cll:MetadataPayload_Base {
+    mtype_str ="CLL";
+    u16 max_cll;
+    u16 max_fall;
+};
 
+struct MetadataPayload_Filler:MetadataPayload_Base {
+    mtype_str ="Filler";
+    u8 ff_byte[payloadSize] [[sealed]];
+};
+
+struct MetadataPayload_Userdefined:MetadataPayload_Base {
+    mtype_str ="User defined";
+    type::GUID uuid;
+    u8 user_defined_data_payload[payloadSize - 16] [[sealed]];
+};
+
+struct MetadataPayload_Undefined:MetadataPayload_Base {
+    mtype_str ="Undefined";
+    u8 payloadData[payloadSize] [[sealed]];
+};
+
+u32 metadata_payload_count = 0;
+
+struct MetadataPayload {
+    u32 payloadType = get_0xff_ext_var($); // peek payloadType
+
+    match (payloadType) {
+        (MetadataPayloadType::ITU_T_T35) : MetadataPayload_T35 Pay [[inline]];
+        (MetadataPayloadType::MDCV) :  MetadataPayload_Mdcv Pay [[inline]];
+        (MetadataPayloadType::CLL): MetadataPayload_Cll Pay [[inline]];
+        (MetadataPayloadType::FILLER):  MetadataPayload_Filler Pay [[inline]];
+        (MetadataPayloadType::USER_DEFINED):  MetadataPayload_Userdefined Pay [[inline]];
+        (_) : MetadataPayload_Undefined Pay [[inline]];
+    }
+    // check read size
+    if($ != Pay.endOffset) {
+        std::warning("Mismatch b/w Metadata payloadSize and actual read size");
+    }
+
+    std::print("    metadata payload[{:d}] type = {:d} ({}), size = {:d}", metadata_payload_count, Pay.payloadType, Pay.mtype_str, Pay.payloadSize);
     metadata_payload_count += 1;
 
-} [[name(std::format("MetadataPayload[{}]:{}", (metadata_payload_count - 1), ptype_str))]];
+} [[name(std::format("Payload[{}]:{}", (metadata_payload_count - 1), Pay.mtype_str))]];
 
 struct PbuMetadata:PbuBase {
     u64 endOffset = 0;
@@ -242,7 +306,6 @@ struct PBU {
     pbu_count += 1;
 
 } [[name(std::format("PBU[{}]:{}", (pbu_count - 1), Pbu.ptype_str))]];
-
 
 u32 au_count = 0;
 
