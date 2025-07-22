@@ -1131,36 +1131,24 @@ int oapvd_vlc_metadata(oapv_bs_t *bs, u32 pbu_size, oapvm_t mid, int group_id)
         payload_size += t0;
         oapv_assert_gv(payload_size <= metadata_size, ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
 
-        if(payload_size > 0) {
-            oapv_assert_gv(BSR_GET_LEFT_BYTE(bs) >= payload_size, ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
-            payload_data = oapv_bsr_sink(bs);
-
-            if(payload_type == OAPV_METADATA_FILLER) {
-                for(int i = 0; i < payload_size; i++) {
-                    t0 = oapv_bsr_read(bs, 8);
-                    DUMP_HLS(payload_data, t0);
-                    oapv_assert_gv(t0 == 0xFF, ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
-                }
-            }
-            else {
+        oapv_assert_gv(BSR_GET_LEFT_BYTE(bs) >= payload_size, ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
+        payload_data = oapv_bsr_sink(bs);
 #if ENC_DEC_DUMP
-                for(int i = 0; i < payload_size; i++) {
-                    t0 = oapv_bsr_read(bs, 8);
-                    DUMP_HLS(payload_data, t0);
-                }
-#else
-                BSR_MOVE_BYTE_ALIGN(bs, payload_size);
-#endif
-            }
+        for(int i = 0; i < payload_size; i++) {
+            t0 = bs->cur[i];
+            DUMP_HLS(payload_data, t0);
         }
-        else {
+#endif
+        if (payload_size == 0) {
             payload_data = NULL;
         }
+        BSR_MOVE_BYTE_ALIGN(bs, payload_size);
         ret = oapvm_set(mid, group_id, payload_type, payload_data, payload_size);
         oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
         metadata_size -= payload_size;
     }
     const u32 target_read_size = (pbu_size - 8);
+    oapv_assert_gv(target_read_size >= (bs->cur - bs_start_pos), ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
     ret = oapvd_vlc_filler(bs, target_read_size - (bs->cur - bs_start_pos));
     oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
     return OAPV_OK;

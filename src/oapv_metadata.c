@@ -156,6 +156,13 @@ static int meta_verify_mdp_data(int type, int size, u8 *data)
             return OAPV_ERR_MALFORMED_BITSTREAM;
         }
     }
+    else if(type == OAPV_METADATA_FILLER) {
+        for(int i = 0; i < size; i++) {
+            if(data[i] != 0xFF) {
+                return OAPV_ERR_MALFORMED_BITSTREAM;
+            }
+        }
+    }
     else {
         return OAPV_OK;
     }
@@ -182,12 +189,12 @@ int oapvm_set(oapvm_t mid, int group_id, int type, void *data, int size)
 
     oapvm_ctx_t *ctx = meta_id_to_ctx(mid);
     oapv_assert_rv(ctx, OAPV_ERR_INVALID_ARGUMENT);
-    oapv_assert_rv((data != NULL && size > 0), OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv((data != NULL && size > 0) || (data == NULL && size == 0), OAPV_ERR_INVALID_ARGUMENT);
 
     ret = meta_verify_mdp_data(type, size, (u8 *)data);
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
-    if(type == OAPV_METADATA_USER_DEFINED){
+    if(type == OAPV_METADATA_USER_DEFINED) {
         uuid = (u8 *)data;
     }
 
