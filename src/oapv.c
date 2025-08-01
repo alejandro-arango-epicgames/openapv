@@ -853,7 +853,7 @@ static int enc_tile(oapve_ctx_t *ctx, oapve_core_t *core, oapve_tile_t *tile)
             core->dq_shift[c] = ctx->bit_depth - 2 - (core->qp[c] / 6);
 
             int cnt = 0;
-            int dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
+            u8 dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
             for(int y = 0; y < OAPV_BLK_H; y++) {
                 for(int x = 0; x < OAPV_BLK_W; x++) {
                     core->q_mat_dec[c][cnt++] = dq_scale * ctx->fh.q_matrix[c][y][x];
@@ -1675,7 +1675,7 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
 
     for(c = 0; c < ctx->num_comp; c++) {
         core->qp[c] = tile->th.tile_qp[c];
-        int dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
+        u8 dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
         core->dq_shift[c] = ctx->bit_depth - 2 - (core->qp[c] / 6);
 
         core->kparam_dc[c] = OAPV_KPARAM_DC_MAX;
