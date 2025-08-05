@@ -532,18 +532,27 @@ const oapv_fn_dquant_t oapv_tbl_fn_dquant_avx[2] =
 
 void oapv_adjust_itrans_avx(int* src, int* dst, int itrans_diff_idx, int diff_step, int shift)
 {
-    __m256i v0 = _mm256_set1_epi32(diff_step);
-    __m256i v1 = _mm256_set1_epi32(1 << (shift - 1));
-    __m256i s0, s1;
+    __m256i v0 = _mm256_set1_epi32((1 << 16) | (diff_step & 0xffff));
+    __m256i v1 = _mm256_set1_epi16(1 << (shift - 1));
+    __m256i s0, s1, d, d0, d1;
 
-    for (int j = 0; j < 64; j += 8) {
+    for (int j = 0; j < 64; j += 16)
+    {
         s0 = _mm256_loadu_si256((const __m256i*)(src + j));
-        s1 = _mm256_loadu_si256((const __m256i*)(oapv_itrans_diff[itrans_diff_idx] + j));
-        s1 = _mm256_mullo_epi32(s1, v0);
-        s1 = _mm256_add_epi32(s1, v1);
-        s1 = _mm256_srai_epi32(s1, shift);
-        s1 = _mm256_add_epi32(s0, s1);
-        _mm256_storeu_si256((__m256i*)(dst + j), s1);
+        d = _mm256_loadu_si256((const __m256i*)(oapv_itrans_diff[itrans_diff_idx] + j));
+
+        d0 = _mm256_unpacklo_epi16(d, v1);
+        d0 = _mm256_madd_epi16(d0, v0);
+        d0 = _mm256_srai_epi32(d0, shift);
+        d0 = _mm256_add_epi32(s0, d0);
+        _mm256_storeu_si256((__m256i*)(dst + j), d0);
+
+        s1 = _mm256_loadu_si256((const __m256i*)(src + j + 8));
+        d1 = _mm256_unpackhi_epi16(d, v1);
+        d1 = _mm256_madd_epi16(d1, v0);
+        d1 = _mm256_srai_epi32(d1, shift);
+        d1 = _mm256_add_epi32(s1, d1);
+        _mm256_storeu_si256((__m256i*)(dst + j + 8), d1);
     }
 }
 
