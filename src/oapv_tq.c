@@ -424,8 +424,27 @@ const oapv_fn_dquant_t oapv_tbl_fn_dquant[2] = {
 void oapv_adjust_itrans(int *src, int *dst, int itrans_diff_idx, int diff_step, int shift)
 {
     int offset = 1 << (shift - 1);
-    for(int k = 0; k < 64; k++) {
-        dst[k] = src[k] + ((oapv_itrans_diff[itrans_diff_idx][k] * diff_step + offset) >> shift);
+    short* itrans_diff = oapv_itrans_diff[itrans_diff_idx];
+    for(int k = 0; k < 4; k++) {
+        dst[0]  = src[0] +  ((itrans_diff[0]  * diff_step + offset) >> shift);
+        dst[1]  = src[1] +  ((itrans_diff[1]  * diff_step + offset) >> shift);
+        dst[2]  = src[2] +  ((itrans_diff[2]  * diff_step + offset) >> shift);
+        dst[3]  = src[3] +  ((itrans_diff[3]  * diff_step + offset) >> shift);
+        dst[4]  = src[4] +  ((itrans_diff[8]  * diff_step + offset) >> shift);
+        dst[5]  = src[5] +  ((itrans_diff[9]  * diff_step + offset) >> shift);
+        dst[6]  = src[6] +  ((itrans_diff[10] * diff_step + offset) >> shift);
+        dst[7]  = src[7] +  ((itrans_diff[11] * diff_step + offset) >> shift);
+        dst[8]  = src[8] +  ((itrans_diff[4]  * diff_step + offset) >> shift);
+        dst[9]  = src[9] +  ((itrans_diff[5]  * diff_step + offset) >> shift);
+        dst[10] = src[10] + ((itrans_diff[6]  * diff_step + offset) >> shift);
+        dst[11] = src[11] + ((itrans_diff[7]  * diff_step + offset) >> shift);
+        dst[12] = src[12] + ((itrans_diff[12] * diff_step + offset) >> shift);
+        dst[13] = src[13] + ((itrans_diff[13] * diff_step + offset) >> shift);
+        dst[14] = src[14] + ((itrans_diff[14] * diff_step + offset) >> shift);
+        dst[15] = src[15] + ((itrans_diff[15] * diff_step + offset) >> shift);
+        itrans_diff += 16;
+        dst += 16;
+        src += 16;
     }
 }
 
