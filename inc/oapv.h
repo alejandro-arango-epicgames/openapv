@@ -247,7 +247,7 @@ extern "C" {
 #define OAPV_FAMILY_422_LQ              (1)
 #define OAPV_FAMILY_422_SQ              (2)
 #define OAPV_FAMILY_422_HQ              (3)
-#define OAPV_FAMILY_444_HQ              (4)
+#define OAPV_FAMILY_444_UQ              (4)
 
 /*****************************************************************************
  * optimization level control

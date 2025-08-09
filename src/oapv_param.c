@@ -551,7 +551,7 @@ int oapve_family_bitrate(int family, int w, int h, int fps_num, int fps_den, int
     case OAPV_FAMILY_422_HQ:
         ratio = 1.f;
         break;
-    case OAPV_FAMILY_444_HQ:
+    case OAPV_FAMILY_444_UQ:
         ratio = 1.5f;
         break;
     default: // invalid family

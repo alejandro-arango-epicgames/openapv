@@ -117,7 +117,7 @@ static const args_opt_t enc_args_opts[] = {
         "      - 422-LQ: YCbCr422 low quality\n"
         "      - 422-SQ: YCbCr422 standard quality\n"
         "      - 422-HQ: YCbCr422 high quality\n"
-        "      - 444-HQ: YCbCr444 high quality\n"
+        "      - 444-UQ: YCbCr444 ultra quality\n"
         "      Note: 'family' and 'bitrate' value cannot be set together.\n"
         "            The family and profile arguments should be set with the same\n"
         "            color space, if they coexists."
@@ -360,7 +360,7 @@ static const oapv_dict_str_int_t opts_family[] = {
     {"422-LQ",    OAPV_FAMILY_422_LQ},
     {"422-SQ",    OAPV_FAMILY_422_SQ},
     {"422-HQ",    OAPV_FAMILY_422_HQ},
-    {"444-HQ",    OAPV_FAMILY_444_HQ},
+    {"444-UQ",    OAPV_FAMILY_444_UQ},
     {"", 0} // termination
 };
 
@@ -399,7 +399,7 @@ static int check_conf(oapve_cdesc_t *cdesc, args_var_t *vars)
                 return -1;
             }
             break;
-        case OAPV_FAMILY_444_HQ:
+        case OAPV_FAMILY_444_UQ:
             if(p != OAPV_PROFILE_444_10) {
                 logerr("ERR: 'family(%s)' and 'profile(%s)' value are unmatched.\n", vars->family, vars->profile);
                 return -1;
