@@ -455,7 +455,7 @@ static void print_commandline(int argc, const char **argv)
 
 static void add_thousands_comma_to_number(char *in, char *out)
 {
-    int len, left = 0;
+    size_t len, left = 0;
     len = strlen(in);
     left = len % 3;
 
@@ -688,6 +688,7 @@ int main(int argc, const char **argv)
     char          *errstr = NULL;
     int            cfmt;                      // color format
     const int      num_frames = MAX_NUM_FRMS; // number of frames in an access unit
+    char           fname_out_au[256];         // filename for given AU when outputting one AU per file.
 
     // print logo
     logv2("  ____                ___   ___ _   __\n");
@@ -977,7 +978,7 @@ int main(int argc, const char **argv)
 
             bitrate_tot += stat.frm_size[FRM_IDX];
 
-            print_stat_au(&stat, au_cnt, param, args_var->max_au, bitrate_tot, clk_end, clk_tot);
+            print_stat_au(&stat, (int)au_cnt, param, args_var->max_au, bitrate_tot, clk_end, clk_tot);
 
             for(int fidx = 0; fidx < num_frames; fidx++) {
                 if(is_rec) {
@@ -993,10 +994,22 @@ int main(int argc, const char **argv)
                 /* store bitstream */
                 if(OAPV_SUCCEEDED(ret)) {
                     if(is_out && stat.write > 0) {
-                        if(write_data(args_var->fname_out, bs_buf, stat.write)) {
-                            logerr("ERR: cannot write bitstream\n");
-                            ret = -1;
-                            goto ERR;
+                        /* If APV extension is specificed, all AU are appended to that file. */
+                        if (strstr(args_var->fname_out, ".apv") || strstr(args_var->fname_out, ".APV")) {
+                            if (write_data(args_var->fname_out, bs_buf, stat.write)) {
+                                logerr("ERR: cannot write bitstream\n");
+                                ret = -1;
+                                goto ERR;
+                            }
+                        }
+                        else {
+                            /* Separate each AU in an individual file. */
+                            sprintf(fname_out_au, "%s_%04d.apv1", args_var->fname_out, (int)au_cnt);
+                            if(overwrite_data(fname_out_au, bs_buf, stat.write)) {
+                                logerr("ERR: cannot write bitstream\n");
+                                ret = -1;
+                                goto ERR;
+                            }
                         }
                     }
                 }
