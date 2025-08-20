@@ -728,6 +728,7 @@ static void measure_psnr(oapv_imgb_t *org, oapv_imgb_t *rec, double psnr[4], int
     }
 }
 
+/* Note: this should be called append_data */
 static int write_data(char *fname, unsigned char *data, int size)
 {
     FILE *fp;
@@ -742,9 +743,32 @@ static int write_data(char *fname, unsigned char *data, int size)
     return 0;
 }
 
+/* Opens a file and write the whole buffer to file. File is overwriten. */
+static int overwrite_data(char *fname, unsigned char *data, int size)
+{
+    FILE *fp;
+
+    fp = fopen(fname, "wb");
+    if(fp == NULL) {
+        logerr("cannot open the output file=%s\n", fname);
+        return -1;
+    }
+    fwrite(data, 1, size, fp);
+    fclose(fp);
+    return 0;
+}
+
 static int clear_data(char *fname)
 {
     FILE *fp;
+
+    /* don't create an empty file, if it didn't exist before. */
+    fp = fopen(fname, "rb");
+    if(fp == NULL) {
+        return;
+    }
+    fclose(fp);
+
     fp = fopen(fname, "wb");
     if(fp == NULL) {
         logerr("cannot remove file (%s)\n", fname);

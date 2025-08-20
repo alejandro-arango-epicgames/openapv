@@ -290,7 +290,8 @@ void oapve_set_frame_header(oapve_ctx_t *ctx, oapv_fh_t *fh)
             }
         }
     }
-    fh->tile_size_present_in_fh_flag = 0;
+    /* For TMV: We need to save the tile sizes in frame header to be able to index tiles in decoder. */
+    fh->tile_size_present_in_fh_flag = 1;
 }
 
 void oapve_set_tile_header(oapve_ctx_t *ctx, oapv_th_t *th, int tile_idx, int qp)
