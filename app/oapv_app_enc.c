@@ -35,7 +35,8 @@
 #include "oapv_app_y4m.h"
 
 #define MAX_BS_BUF   (128 * 1024 * 1024)
-#define MAX_NUM_FRMS (1)           // supports only 1-frame in an access unit
+#define MAX_NUM_FRMS (OAPV_MAX_NUM_FRAMES) // TMV: supports for mips as non-primary frames in access unit
+#define NUM_PRI_FRMS (1) // Supports only 1 primary frame in access unit
 #define FRM_IDX      (0)           // supports only 1-frame in an access unit
 #define MAX_NUM_CC   (OAPV_MAX_CC) // Max number of color componets (upto 4:4:4:4)
 
@@ -200,6 +201,10 @@ static const args_opt_t enc_args_opts[] = {
         ARGS_NO_KEY,  "hash", ARGS_VAL_TYPE_NONE, 0, NULL,
         "embed frame hash value for conformance checking in decoding"
     },
+    {
+        ARGS_NO_KEY,  "tmv-mips", ARGS_VAL_TYPE_NONE, 0, NULL,
+        "TMV - Generate mipmaps as non-primary frames in each access units."
+    },
     {ARGS_END_KEY, "", ARGS_VAL_TYPE_NONE, 0, NULL, ""} /* termination */
 };
 
@@ -214,6 +219,7 @@ typedef struct args_var {
     char           fname_rec[256];
     int            max_au;
     int            hash;
+    int            tmv_mips;
     int            input_depth;
     int            input_csp;
     int            seek;
@@ -269,6 +275,7 @@ static args_var_t *args_init_vars(args_parser_t *args, oapve_param_t *param)
     args_set_variable_by_key_long(opts, "recon", vars->fname_rec);
     args_set_variable_by_key_long(opts, "max-au", &vars->max_au);
     args_set_variable_by_key_long(opts, "hash", &vars->hash);
+    args_set_variable_by_key_long(opts, "tmv-mips", &vars->tmv_mips);
     args_set_variable_by_key_long(opts, "verbose", &op_verbose);
     op_verbose = VERBOSE_SIMPLE; /* default */
     args_set_variable_by_key_long(opts, "input-depth", &vars->input_depth);
@@ -687,7 +694,9 @@ int main(int argc, const char **argv)
     int            is_out = 0, is_rec = 0;
     char          *errstr = NULL;
     int            cfmt;                      // color format
-    const int      num_frames = MAX_NUM_FRMS; // number of frames in an access unit
+    const int      num_frames = NUM_PRI_FRMS; // number of primary frames in an access unit
+    int            num_mips = 0;              // [TMV] number of mipmaps
+    int            start_mip_idx = 0;
     char           fname_out_au[256];         // filename for given AU when outputting one AU per file.
 
     // print logo
@@ -810,7 +819,7 @@ int main(int argc, const char **argv)
     }
 
     cdesc.max_bs_buf_size = MAX_BS_BUF; /* maximum bitstream buffer size */
-    cdesc.max_num_frms = MAX_NUM_FRMS;
+    cdesc.max_num_frms = NUM_PRI_FRMS;
     if(!strcmp(args_var->threads, "auto")){
         cdesc.threads = OAPV_CDESC_THREADS_AUTO;
     }
@@ -852,6 +861,36 @@ int main(int argc, const char **argv)
         ret = -1;
         goto ERR;
     }
+
+    // TMV -- Prep mip encoding parameters --
+    //num_mips = calculate_num_mips(param->w, param->h) - 1; // exclude mip 0, already primary frame above.
+    num_mips = 0;
+
+    if(args_var->tmv_mips) {
+        for(int mip_idx = 0, w = param->w / 2, h = param->h / 2;; mip_idx++) {
+
+            if(cfmt == OAPV_CF_YCBCR422 && w & 0x1) {
+                logerr("ERR: can't generate mip that is not multiple of two (YUV 422 constraint).");
+                break;
+            }
+
+            int frame_idx = 1 + mip_idx; // assumes 1 primary frame
+            cdesc.param[frame_idx] = *param;
+            cdesc.param[frame_idx].w = w;
+            cdesc.param[frame_idx].h = h;
+
+            if(w == 1 && h == 1) {
+                break;
+            }
+
+            num_mips++;
+
+            w = max(w / 2, 1);
+            h = max(h / 2, 1);
+        }
+    }
+
+    cdesc.max_num_frms = 1 + num_mips;  // TMV
 
     /* create encoder */
     id = oapve_create(&cdesc, &ret);
@@ -939,6 +978,28 @@ int main(int argc, const char **argv)
         ifrms.num_frms++;
     }
 
+    // --- TMV Begin 
+    // prepare frames for the mips
+    start_mip_idx = ifrms.num_frms;
+
+    if (num_mips + ifrms.num_frms >= OAPV_MAX_NUM_FRAMES)
+    {
+        num_mips = OAPV_MAX_NUM_FRAMES - ifrms.num_frms - 1;
+        logerr("ERR: Too many mips, clamping to %d mips.", num_mips);
+    }
+
+    for (int mip_idx = 0, w = param->w/2, h = param->h/2; mip_idx < num_mips; mip_idx++)
+    {
+        int frame_idx = start_mip_idx + mip_idx;
+        // Allocate the mip with codec format and bitdepth directly, mips are calculated from already converted imgb.
+        ifrms.frm[frame_idx].imgb = imgb_create(w, h, OAPV_CS_SET(cfmt, codec_depth, 0));
+        w = max(w / 2, 1);
+        h = max(h / 2, 1);
+    }
+
+    ifrms.num_frms += num_mips;
+    // --- TMV End
+
     /* encode pictures *******************************************************/
     while(args_var->max_au == 0 || (au_cnt < args_var->max_au)) {
         for(int i = 0; i < num_frames; i++) {
@@ -960,6 +1021,21 @@ int main(int argc, const char **argv)
             }
             ifrms.frm[i].group_id = 1; // FIX-ME : need to set properly in case of multi-frame
             ifrms.frm[i].pbu_type = OAPV_PBU_TYPE_PRIMARY_FRAME;
+        }
+
+        // TMV -- Calculcate the mipmaps and store in non-primary frame.
+        for (int mip_idx = 0; mip_idx < num_mips; mip_idx++)
+        {
+            int src_frm_idx = 0;
+            int dst_frm_idx = mip_idx + start_mip_idx;
+            if (mip_idx > 0)
+            {
+                src_frm_idx = start_mip_idx + mip_idx - 1;
+            }
+
+            imgb_calc_mip(ifrms.frm[dst_frm_idx].imgb, ifrms.frm[src_frm_idx].imgb);
+            ifrms.frm[dst_frm_idx].group_id = 2 + mip_idx;  // non primary frame must have different group id.
+            ifrms.frm[dst_frm_idx].pbu_type = OAPV_PBU_TYPE_NON_PRIMARY_FRAME;
         }
 
         if(state == STATE_ENCODING) {
