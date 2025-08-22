@@ -675,6 +675,133 @@ static void imgb_cpy(oapv_imgb_t *dst, oapv_imgb_t *src)
     }
 }
 
+// todo: doesn't work with planar2.
+static void imgb_calc_mip_8(oapv_imgb_t *dst_img, oapv_imgb_t *src_img)
+{
+    unsigned char *src_buff;
+    unsigned char  *dst_buff;
+    int             accum = 0;
+    int             dst_w, dst_h, src_w, src_h;
+    int             plane_idx, pixel_y, pixel_x;
+
+    for(plane_idx = 0; plane_idx < dst_img->np; plane_idx++) {
+        src_buff = (unsigned char *)src_img->a[plane_idx];
+        dst_buff = (unsigned char *)dst_img->a[plane_idx];
+        dst_w = dst_img->w[plane_idx];
+        dst_h = dst_img->h[plane_idx];
+        src_w = src_img->w[plane_idx];
+        src_h = src_img->h[plane_idx];
+
+        if(src_h > dst_h && src_w > dst_w) {
+            for(pixel_y = 0; pixel_y < dst_h; pixel_y++) {
+                for(pixel_x = 0; pixel_x < dst_w; pixel_x++) {
+                    accum = src_buff[pixel_x * 2];
+                    accum += src_buff[pixel_x * 2 + 1];
+                    accum += src_buff[pixel_x * 2 + src_img->s[plane_idx]];
+                    accum += src_buff[pixel_x * 2 + 1 + src_img->s[plane_idx]];
+                    dst_buff[pixel_x] = (unsigned char)(accum / 4);
+                }
+                src_buff += src_img->s[plane_idx] * 2;
+                dst_buff += dst_img->s[plane_idx];
+            }
+        }
+        else if(src_h > dst_h) {
+            for(pixel_y = 0; pixel_y < dst_h; pixel_y++) {
+                for(pixel_x = 0; pixel_x < dst_w; pixel_x++) {
+                    accum = src_buff[pixel_x];
+                    accum += src_buff[pixel_x + src_img->s[plane_idx]];
+                    dst_buff[pixel_x] = (unsigned char)(accum / 2);
+                }
+                src_buff += src_img->s[plane_idx] * 2;
+                dst_buff += dst_img->s[plane_idx];
+            }
+        }
+        else if(src_w > dst_w) {
+            for(pixel_y = 0; pixel_y < dst_h; pixel_y++) {
+                for(pixel_x = 0; pixel_x < dst_w; pixel_x++) {
+                    accum = src_buff[pixel_x * 2];
+                    accum += src_buff[pixel_x * 2 + 1];
+                    dst_buff[pixel_x] = (unsigned char)(accum / 2);
+                }
+                src_buff += src_img->s[plane_idx];
+                dst_buff += dst_img->s[plane_idx];
+            }
+        }
+    }
+}
+
+static void imgb_calc_mip_16(oapv_imgb_t* dst_img, oapv_imgb_t* src_img)
+{
+    unsigned short *src_buff;
+    unsigned short *dst_buff;
+    int             accum = 0;
+    int             dst_w, dst_h, src_w, src_h;
+    int             plane_idx, pixel_y, pixel_x;
+
+    for(plane_idx = 0; plane_idx < dst_img->np; plane_idx++)
+    {
+        src_buff = (unsigned short *)src_img->a[plane_idx];
+        dst_buff = (unsigned short *)dst_img->a[plane_idx];
+        dst_w = dst_img->w[plane_idx];
+        dst_h = dst_img->h[plane_idx];
+        src_w = src_img->w[plane_idx];
+        src_h = src_img->h[plane_idx];
+
+        if(src_h > dst_h && src_w > dst_w) {
+            for(pixel_y = 0; pixel_y < dst_h; pixel_y++) {
+                for(pixel_x = 0; pixel_x < dst_w; pixel_x++) {
+                    accum = src_buff[pixel_x * 2];
+                    accum += src_buff[pixel_x * 2 + 1];
+                    accum += src_buff[pixel_x * 2 + src_img->s[plane_idx]/2];
+                    accum += src_buff[pixel_x * 2 + 1 + src_img->s[plane_idx]/2];
+                    dst_buff[pixel_x] = (unsigned short)(accum / 4);
+                }
+                src_buff += src_img->s[plane_idx];     // must divide stride by 2 because of ushort ptrs.
+                dst_buff += dst_img->s[plane_idx] / 2; // must divide stride by 2 because of ushort ptrs.
+            }
+        }
+        else if (src_h > dst_h) {
+            for(pixel_y = 0; pixel_y < dst_h; pixel_y++) {
+                for(pixel_x = 0; pixel_x < dst_w; pixel_x++) {
+                    accum = src_buff[pixel_x];
+                    accum += src_buff[pixel_x + src_img->s[plane_idx]/2];
+                    dst_buff[pixel_x] = (unsigned short)(accum / 2);
+                }
+                src_buff += src_img->s[plane_idx];     // must divide stride by 2 because of ushort ptrs.
+                dst_buff += dst_img->s[plane_idx] / 2; // must divide stride by 2 because of ushort ptrs.
+            }
+        }
+        else if(src_w > dst_w) {
+            for(pixel_y = 0; pixel_y < dst_h; pixel_y++) {
+                for(pixel_x = 0; pixel_x < dst_w; pixel_x++) {
+                    accum = src_buff[pixel_x * 2];
+                    accum += src_buff[pixel_x * 2 + 1];
+                    dst_buff[pixel_x] = (unsigned short)(accum / 2);
+                }
+                src_buff += src_img->s[plane_idx] / 2; // must divide stride by 2 because of ushort ptrs.
+                dst_buff += dst_img->s[plane_idx] / 2; // must divide stride by 2 because of ushort ptrs.
+            }        
+        }
+    }
+}
+
+static void imgb_calc_mip(oapv_imgb_t *dst_img, oapv_imgb_t *src_img)
+{
+    int dst_bit_depth = OAPV_CS_GET_BIT_DEPTH(dst_img->cs);
+    if(dst_bit_depth > 8) {
+        imgb_calc_mip_16(dst_img, src_img); // might have to mask bits.
+    }
+    else
+    {
+        imgb_calc_mip_8(dst_img, src_img);
+    }
+}
+
+static int calculate_num_mips(int w, int h)
+{
+    return 1 + (int)floor(log2(max(w, h)));
+}
+
 static void measure_psnr(oapv_imgb_t *org, oapv_imgb_t *rec, double psnr[4], int bit_depth)
 {
     double sum[4], mse[4];
@@ -765,7 +892,7 @@ static int clear_data(char *fname)
     /* don't create an empty file, if it didn't exist before. */
     fp = fopen(fname, "rb");
     if(fp == NULL) {
-        return;
+        return 0;
     }
     fclose(fp);
 
