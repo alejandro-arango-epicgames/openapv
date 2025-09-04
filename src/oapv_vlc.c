@@ -796,6 +796,8 @@ int oapvd_vlc_dc_coef(oapv_bs_t *bs, int *dc_diff, int *kparam_dc)
 
 int oapvd_vlc_ac_coef(oapv_bs_t *bs, s16 *coef, int *kparam_ac)
 {
+    // printf("DEBUG: oapvd_vlc_ac_coef entry - leftbits=%d, code=0x%08x\n", bs->leftbits, bs->code);
+    
     int        level, run, k_ac, k_run, flag;
     int        scan_pos_offset;
     const u8  *scanp;
