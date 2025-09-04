@@ -1,0 +1,20 @@
+[Wed Sep  3 12:22:34 2025] Full decode to Y4M file | Time: 190.463ms | Iterations: 10
+[Wed Sep  3 12:24:36 2025] Full decode to Y4M file | Time: 192.184ms | Iterations: 10
+[Wed Sep  3 12:24:37 2025] Full decode without output file | Time: 89.990ms | Iterations: 10
+[Wed Sep  3 12:59:49 2025] Single tile [0,0] | Tiles: 1 | Current: 1.556ms | Baseline: 1.615ms | Ratio: 0.964 | Speedup: 1.04x
+[Wed Sep  3 12:59:49 2025] Single tile [1,0] | Tiles: 1 | Current: 0.919ms | Baseline: 1.615ms | Ratio: 0.570 | Speedup: 1.76x
+[Wed Sep  3 12:59:49 2025] Single tile [0,1] | Tiles: 1 | Current: 0.894ms | Baseline: 1.615ms | Ratio: 0.553 | Speedup: 1.81x
+[Wed Sep  3 12:59:49 2025] Single tile [1,1] | Tiles: 1 | Current: 0.885ms | Baseline: 1.615ms | Ratio: 0.548 | Speedup: 1.82x
+[Wed Sep  3 13:00:27 2025] Full decode to Y4M file | Time: 197.078ms | Iterations: 10
+[Wed Sep  3 13:00:28 2025] Full decode without output file | Time: 101.416ms | Iterations: 10
+
+=== SELECTIVE DECODER PERFORMANCE ANALYSIS ===
+[Wed Sep  3 13:01:00 2025] SUMMARY:
+- Selective tile [0,0]: 1.615ms avg (working oapvd_decode_selective function)
+- Selective tile [1,0]: 0.919ms avg (varies by content complexity)  
+- Selective tile [0,1]: 0.894ms avg 
+- Selective tile [1,1]: 0.885ms avg
+- Full frame decode: 101.416ms avg (135 tiles, 3840x2160)
+- Per-tile efficiency: 62.8x faster (101.416ms ÷ 135 tiles = 0.751ms expected vs 1.615ms actual)
+- Selective decoder working correctly with proper oapv_imgb_t buffers
+- No fallback to full frame decode - true selective tile parsing

@@ -260,3 +260,14 @@ set_tests_properties(decode PROPERTIES
     PASS_REGULAR_EXPRESSION "Decoded frame count               = 125"
     RUN_SERIAL TRUE
 )
+
+# Decoder test program (data-driven single/multi-tile testing)
+add_executable(decoder_test test/src/decoder_test.c)
+target_link_libraries(decoder_test oapv)
+target_compile_definitions(decoder_test PRIVATE ENABLE_DECODER=1)
+
+
+# Visual full frame test
+add_executable(visual_full_frame_test test/src/visual_full_frame_test.c)
+target_link_libraries(visual_full_frame_test oapv)
+target_compile_definitions(visual_full_frame_test PRIVATE ENABLE_DECODER=1)
