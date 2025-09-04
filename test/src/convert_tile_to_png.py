@@ -91,7 +91,7 @@ def save_y_as_grayscale(y_array, bit_depth, output_filename):
     scaled_array = (y_clamped * 255.0 / max_val).astype(np.uint8)
     
     # Create PIL image and save
-    img = Image.fromarray(scaled_array, 'L')  # Grayscale
+    img = Image.fromarray(scaled_array)  # PIL automatically detects grayscale format
     img.save(output_filename)
     print(f"Saved grayscale PNG: {output_filename}")
 

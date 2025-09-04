@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include <stdint.h>
+#include <errno.h>
 #include "../../inc/oapv.h"
 
 typedef unsigned char u8;
@@ -233,11 +234,11 @@ void write_frame_y4m(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u
 }
 
 // Write raw file with header
-void write_frame_raw(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_buffer) {
+int write_frame_raw(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_buffer) {
     FILE* fp = fopen(filename, "wb");
     if (!fp) {
-        printf("ERROR: Cannot create output file %s\n", filename);
-        return;
+        printf("ERROR: Cannot create output file %s - %s (errno: %d)\n", filename, strerror(errno), errno);
+        return 0;
     }
     
     int width = y_buffer->w[0];
@@ -263,6 +264,7 @@ void write_frame_raw(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u
     fwrite(v_buffer->a[0], (width/2) * height * 2, 1, fp);
     
     fclose(fp);
+    return 1;
 }
 
 // Quick validation - just count non-zero pixels
@@ -494,20 +496,29 @@ int run_test_config(const char* input_file, const test_config_t* config) {
         } else {
             printf("ERROR: Decode failed (return code: %d)\n", ret);
         }
-    }
-    
-    // Write output files
-    if (config->output_format != OUTPUT_NONE && y_buffer) {
-        char output_filename[256];
         
-        if (config->output_format == OUTPUT_Y4M) {
-            snprintf(output_filename, sizeof(output_filename), "test/output/%s.y4m", config->name);
-            write_frame_y4m(output_filename, y_buffer, u_buffer, v_buffer);
-            printf("Written Y4M: %s\n", output_filename);
-        } else if (config->output_format == OUTPUT_RAW) {
-            snprintf(output_filename, sizeof(output_filename), "test/output/%s.raw", config->name);
-            write_frame_raw(output_filename, y_buffer, u_buffer, v_buffer);
-            printf("Written RAW: %s\n", output_filename);
+        // Write output files (for multi-tile tests, include thread count to avoid contention)
+        if (config->output_format != OUTPUT_NONE && y_buffer) {
+            char output_filename[256];
+            
+            if (config->output_format == OUTPUT_Y4M) {
+                if (config->test_type == TEST_MULTI_TILE) {
+                    snprintf(output_filename, sizeof(output_filename), "output/%s_%dthreads.y4m", config->name, thread_count);
+                } else {
+                    snprintf(output_filename, sizeof(output_filename), "output/%s.y4m", config->name);
+                }
+                write_frame_y4m(output_filename, y_buffer, u_buffer, v_buffer);
+                printf("Written Y4M: %s\n", output_filename);
+            } else if (config->output_format == OUTPUT_RAW) {
+                if (config->test_type == TEST_MULTI_TILE) {
+                    snprintf(output_filename, sizeof(output_filename), "output/%s_%dthreads.raw", config->name, thread_count);
+                } else {
+                    snprintf(output_filename, sizeof(output_filename), "output/%s.raw", config->name);
+                }
+                if (write_frame_raw(output_filename, y_buffer, u_buffer, v_buffer)) {
+                    printf("Written RAW: %s\n", output_filename);
+                }
+            }
         }
     }
     
