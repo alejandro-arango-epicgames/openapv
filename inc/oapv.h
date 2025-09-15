@@ -690,6 +690,34 @@ OAPV_EXPORT void oapvd_delete(oapvd_t did);
 OAPV_EXPORT int oapvd_config(oapvd_t did, int cfg, void *buf, int *size);
 OAPV_EXPORT int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid, oapvd_stat_t *stat);
 
+/**** TMV Specific decoder ****/
+
+
+/*****************************************************************************
+ * Bitstream tile information.
+ * Used to provide a set of tiles to decode for the decode_frame function.
+ *****************************************************************************/
+typedef struct oapvd_bs_tile oapvd_bs_tile_t;
+struct oapvd_bs_tile {
+    int tile_idx; /* tile index in the full array of tiles. */
+    int data_size; /* tile size including tile_size syntax */
+
+    void *bs_beg; /* start position of tile in input bistream */
+    void *bs_end; /* end position of tile() in input bistream */
+};
+
+/*
+* did: decoder context
+* bitb: bitstream buffer, expected to be at the start of the frame PBU
+* ofrm: output frame buffer
+* mid: meta data context
+* frame_idx: frame index (in the AU frame array)
+* num_bs_tiles: number of bitstream tiles specified
+* bs_tiles: specification of the subset of bitstream tiles to decode.
+* stat: output stats
+*/
+OAPV_EXPORT int oapvd_decode_frame(oapvd_t did, oapv_bitb_t *bitb, oapv_frm_t *ofrm, oapvm_t mid, int frame_idx, int num_bs_tiles, oapvd_bs_tile_t *bs_tiles, oapvd_stat_t *stat);
+
 /*****************************************************************************
  * interface for utility
  *****************************************************************************/
