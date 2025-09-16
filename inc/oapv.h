@@ -652,7 +652,7 @@ struct oapv_selective_decode {
     int mip_level;                          // Which mip level to decode (0=full, 1=half, etc.)
     int num_tiles;                          // Number of tiles to decode
     int tile_coords[2*OAPV_MAX_TILES];      // Pairs of [col, row] for each tile
-    oapv_imgb_t *output_buffers[4];         // Per-channel output buffers (Y, U, V, A)
+    oapv_imgb_t *output_buffer;            // Per-channel output buffers (Y, U, V, A)
     
     // Frame metadata (filled by decoder)
     int actual_frame_width;                 // Actual frame width from mip level metadata
@@ -710,8 +710,18 @@ OAPV_EXPORT oapvd_t oapvd_create(oapvd_cdesc_t *cdesc, int *err);
 OAPV_EXPORT void oapvd_delete(oapvd_t did);
 OAPV_EXPORT int oapvd_config(oapvd_t did, int cfg, void *buf, int *size);
 OAPV_EXPORT int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid, oapvd_stat_t *stat);
-OAPV_EXPORT int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
-OAPV_EXPORT int oapvd_decode_selective_multi(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
+
+/* Wrapper for stream reader api */
+typedef struct oapvd_bitr oapvd_bitr_t;
+struct oapvd_bitr {
+    void *data;
+    long (*tell)(oapvd_bitr_t *bitr);
+    int (*seek)(oapvd_bitr_t *bitr, long offset, int origin);
+    size_t (*read)(oapvd_bitr_t *bitr, void* buffer, size_t size, size_t count);
+};
+
+OAPV_EXPORT int oapvd_decode_selective(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
+OAPV_EXPORT int oapvd_decode_selective_multi(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
 
 /*****************************************************************************
  * interface for utility

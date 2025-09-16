@@ -6,50 +6,71 @@
 typedef unsigned char u8;
 typedef unsigned short u16;
 
+void delete_frame_buffer(oapv_imgb_t *imgb)
+{
+    if(imgb) {
+        for(int c = 0; c < imgb->np; ++c) {
+            if(imgb->a[c]) {
+                free(imgb->a[c]);
+            }
+        }
+
+        free(imgb);
+    }
+}
+
 // Function to create frame buffers for full frame (3840x2160)
-oapv_imgb_t* create_full_frame_buffer(int width, int height, int component, int bit_depth) {
+oapv_imgb_t *create_full_frame_buffer(int width, int height, int num_components, int bit_depth)
+{
     oapv_imgb_t *imgb = malloc(sizeof(oapv_imgb_t));
     if (!imgb) return NULL;
     
     memset(imgb, 0, sizeof(oapv_imgb_t));
     
-    // Set dimensions based on component (Y=full, U/V=half width for 4:2:2)
-    if (component == 0) {  // Y component
-        imgb->w[0] = width;
-        imgb->h[0] = height;
-        imgb->s[0] = width * 2;  // stride in bytes (16-bit pixels)
-    } else {  // U/V components (4:2:2)
-        imgb->w[0] = width / 2;
-        imgb->h[0] = height;
-        imgb->s[0] = (width / 2) * 2;  // stride in bytes (16-bit pixels)
-    }
-    
-    int buffer_size = imgb->w[0] * imgb->h[0] * 2; // 2 bytes per pixel for 10-bit
-    imgb->a[0] = calloc(buffer_size, 1);
-    if (!imgb->a[0]) {
-        free(imgb);
-        return NULL;
+    imgb->np = num_components;
+
+    for(int c = 0; c < num_components; ++c) {
+
+        // Set dimensions based on component (Y=full, U/V=half width for 4:2:2)
+        if(c == 0) { // Y component
+            imgb->w[c] = width;
+            imgb->h[c] = height;
+            imgb->s[c] = width * 2; // stride in bytes (16-bit pixels)
+        }
+        else { // U/V components (4:2:2)
+            imgb->w[c] = width / 2;
+            imgb->h[c] = height;
+            imgb->s[c] = (width / 2) * 2; // stride in bytes (16-bit pixels)
+        }
+
+        int buffer_size = imgb->w[c] * imgb->h[c] * 2; // 2 bytes per pixel for 10-bit
+        imgb->a[c] = calloc(buffer_size, 1);
+        if(!imgb->a[c]) {
+            delete_frame_buffer(imgb);
+            return NULL;
+        }
+
+        printf("Created frame buffer: component=%d, %dx%d, stride=%d, buffer_size=%d bytes\n",
+               c, imgb->w[c], imgb->h[c], imgb->s[c], buffer_size);
+
     }
     
     imgb->cs = OAPV_CS_SET(OAPV_CF_YCBCR422, bit_depth, 0);
     imgb->refcnt = 1;
-    
-    printf("Created frame buffer: component=%d, %dx%d, stride=%d, buffer_size=%d bytes\n", 
-           component, imgb->w[0], imgb->h[0], imgb->s[0], buffer_size);
-    
+
     return imgb;
 }
 
 // Write Y4M file for full frame
-void write_frame_y4m(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_buffer) {
+void write_frame_y4m(const char* filename, oapv_imgb_t* frame_buffer) {
     FILE* fp = fopen(filename, "wb");
     if (!fp) {
         printf("ERROR: Cannot create output file %s\n", filename);
         return;
     }
     
-    int width = y_buffer->w[0];
-    int height = y_buffer->h[0];
+    int width = frame_buffer->w[0];
+    int height = frame_buffer->h[0];
     
     // Write Y4M header for full frame, 10-bit 4:2:2
     fprintf(fp, "YUV4MPEG2 W%d H%d F25:1 Ip A1:1 C422p10\n", width, height);
@@ -58,9 +79,9 @@ void write_frame_y4m(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u
     fprintf(fp, "FRAME\n");
     
     // Get the raw data pointers
-    u16* y_data = (u16*)y_buffer->a[0];
-    u16* u_data = (u16*)u_buffer->a[0];
-    u16* v_data = (u16*)v_buffer->a[0];
+    u16* y_data = (u16*)frame_buffer->a[0];
+    u16* u_data = (u16*)frame_buffer->a[1];
+    u16* v_data = (u16*)frame_buffer->a[2];
     
     // Y4M expects little-endian 16-bit samples for 10-bit
     // Write Y plane
@@ -86,24 +107,24 @@ void write_frame_y4m(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u
 }
 
 // Write raw YUV file for Python conversion
-void write_frame_raw(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_buffer) {
+void write_frame_raw(const char* filename, oapv_imgb_t* frame_buffer) {
     FILE* fp = fopen(filename, "wb");
     if (!fp) {
         printf("ERROR: Cannot create output file %s\n", filename);
         return;
     }
     
-    int width = y_buffer->w[0];
-    int height = y_buffer->h[0];
+    int width = frame_buffer->w[0];
+    int height = frame_buffer->h[0];
     
     // Write header with dimensions and format info
     int header[5] = {width, height, 10, 422, 1}; // width, height, bit_depth, chroma_format, version
     fwrite(header, sizeof(int), 5, fp);
     
     // Get the raw data pointers
-    u16* y_data = (u16*)y_buffer->a[0];
-    u16* u_data = (u16*)u_buffer->a[0];
-    u16* v_data = (u16*)v_buffer->a[0];
+    u16* y_data = (u16*)frame_buffer->a[0];
+    u16* u_data = (u16*)frame_buffer->a[1];
+    u16* v_data = (u16*)frame_buffer->a[2];
     
     // Write Y plane
     fwrite(y_data, 2, width * height, fp);
@@ -116,6 +137,35 @@ void write_frame_raw(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u
     
     fclose(fp);
     printf("Written raw frame to: %s\n", filename);
+}
+
+long file_bitreader_tell(oapvd_bitr_t *bitr)
+{
+    FILE *fp = (FILE *)bitr->data;
+
+    return ftell(fp);
+}
+
+int file_bitreader_seek(oapvd_bitr_t *bitr, long offset, int origin)
+{
+    FILE *fp = (FILE *)bitr->data;
+
+    return fseek(fp, offset, origin);
+}
+
+size_t file_bitreader_read(oapvd_bitr_t *bitr, void *buffer, size_t size, size_t count)
+{
+    FILE *fp = (FILE *)bitr->data;
+
+    return fread(buffer, size, count, fp);
+}
+
+void file_bitreader_init(oapvd_bitr_t *bitr, FILE *fp)
+{
+    bitr->data = fp;
+    bitr->tell = file_bitreader_tell;
+    bitr->seek = file_bitreader_seek;
+    bitr->read = file_bitreader_read;
 }
 
 int main(int argc, char* argv[]) {
@@ -162,9 +212,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Buffers will be created after getting actual frame dimensions from decoder
-    oapv_imgb_t *y_buffer = NULL;
-    oapv_imgb_t *u_buffer = NULL; 
-    oapv_imgb_t *v_buffer = NULL;
+    oapv_imgb_t *frame_buffer = NULL;
     
     // Prepare selective decode structure
     oapv_selective_decode_t sel_decode = {0};
@@ -173,10 +221,13 @@ int main(int argc, char* argv[]) {
     sel_decode.tile_coords[1] = tile_y;
     sel_decode.mip_level = mip_level;
     
+    oapvd_bitr_t bitr;
+    file_bitreader_init(&bitr, fp);
+
     // First, call decoder with NULL buffers to get frame metadata
     printf("Getting frame metadata for mip level %d...\n", sel_decode.mip_level);
     oapvd_stat_t stat_metadata = {0};
-    int ret_metadata = oapvd_decode_selective(decoder_id, fp, &sel_decode, 0, &stat_metadata);
+    int ret_metadata = oapvd_decode_selective(decoder_id, &bitr, &sel_decode, 0, &stat_metadata);
     
     if (OAPV_FAILED(ret_metadata)) {
         printf("ERROR: Failed to get frame metadata (return code: %d)\n", ret_metadata);
@@ -189,24 +240,17 @@ int main(int argc, char* argv[]) {
     printf("Creating buffers based on actual mip level dimensions: %dx%d\n", 
            sel_decode.actual_frame_width, sel_decode.actual_frame_height);
            
-    y_buffer = create_full_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 0, sel_decode.bit_depth);
-    u_buffer = create_full_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 1, sel_decode.bit_depth);  
-    v_buffer = create_full_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 2, sel_decode.bit_depth);
+    frame_buffer = create_full_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 3, sel_decode.bit_depth);
     
-    if (!y_buffer || !u_buffer || !v_buffer) {
+    if (!frame_buffer) {
         printf("ERROR: Failed to allocate frame buffers\n");
-        if (y_buffer) { free(y_buffer->a[0]); free(y_buffer); }
-        if (u_buffer) { free(u_buffer->a[0]); free(u_buffer); }
-        if (v_buffer) { free(v_buffer->a[0]); free(v_buffer); }
         oapvd_delete(decoder_id);
         fclose(fp);
         return -1;
     }
     
     // Set the buffers for actual decoding
-    sel_decode.output_buffers[0] = y_buffer;
-    sel_decode.output_buffers[1] = u_buffer;
-    sel_decode.output_buffers[2] = v_buffer;
+    sel_decode.output_buffer = frame_buffer;
     
     // Calculate expected tile position in frame using actual tile size
     int tile_x_pos = tile_x * sel_decode.actual_tile_width;
@@ -223,9 +267,9 @@ int main(int argc, char* argv[]) {
         printf("SUCCESS: Tile decoded successfully\n");
         
         // Analyze the frame to see where data was written
-        u16* y_data = (u16*)y_buffer->a[0];
-        u16* u_data = (u16*)u_buffer->a[0];
-        u16* v_data = (u16*)v_buffer->a[0];
+        u16* y_data = (u16*)frame_buffer->a[0];
+        u16* u_data = (u16*)frame_buffer->a[1];
+        u16* v_data = (u16*)frame_buffer->a[2];
         
         // Check full frame statistics
         int y_nonzero_total = 0, u_nonzero_total = 0, v_nonzero_total = 0;
@@ -276,8 +320,8 @@ int main(int argc, char* argv[]) {
         snprintf(raw_filename, sizeof(raw_filename), "output/full_frame_mip%d_tile_%d_%d.raw", mip_level, tile_x, tile_y);
         
         // Write output files
-        write_frame_y4m(y4m_filename, y_buffer, u_buffer, v_buffer);
-        write_frame_raw(raw_filename, y_buffer, u_buffer, v_buffer);
+        write_frame_y4m(y4m_filename, frame_buffer);
+        write_frame_raw(raw_filename, frame_buffer);
         
         printf("\nFull frame with tile [%d,%d] saved successfully!\n", tile_x, tile_y);
         printf("View with: ffplay %s\n", y4m_filename);
@@ -288,18 +332,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Cleanup
-    if (y_buffer) { 
-        if (y_buffer->a[0]) free(y_buffer->a[0]); 
-        free(y_buffer); 
-    }
-    if (u_buffer) { 
-        if (u_buffer->a[0]) free(u_buffer->a[0]); 
-        free(u_buffer); 
-    }
-    if (v_buffer) { 
-        if (v_buffer->a[0]) free(v_buffer->a[0]); 
-        free(v_buffer); 
-    }
+    delete_frame_buffer(frame_buffer);
     oapvd_delete(decoder_id);
     fclose(fp);
     
