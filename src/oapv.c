@@ -1561,7 +1561,8 @@ static int dec_set_tile_info(oapvd_tile_t* tile, int w_pel, int h_pel, int tile_
     return OAPV_OK;
 }
 
-static int dec_frm_prepare(oapvd_ctx_t *ctx, oapv_imgb_t *imgb)
+// bs is assumed to be at the memory location of the first tile. For the tile-mip selection, we are making it optional.
+static int dec_frm_prepare(oapvd_ctx_t *ctx, oapv_imgb_t *imgb, oapv_bs_t* bs)
 {
     ctx->imgb = imgb;
     imgb_addref(ctx->imgb); // increase reference count
@@ -1604,7 +1605,9 @@ static int dec_frm_prepare(oapvd_ctx_t *ctx, oapv_imgb_t *imgb)
     for(int i = 0; i < ctx->num_tiles; i++) {
         ctx->tile[i].bs_beg = NULL;
     }
-    ctx->tile[0].bs_beg = oapv_bsr_sink(&ctx->bs);
+    if(bs) {
+        ctx->tile[0].bs_beg = oapv_bsr_sink(bs);
+    }
 
     for(int i = 0; i < ctx->num_tiles; i++) {
         ctx->tile[i].stat = DEC_TILE_STAT_NOT_DECODED;
@@ -2097,7 +2100,7 @@ int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid
             ret = oapvd_vlc_frame_header(bs, &ctx->fh);
             oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
-            ret = dec_frm_prepare(ctx, ofrms->frm[frame_cnt].imgb);
+            ret = dec_frm_prepare(ctx, ofrms->frm[frame_cnt].imgb, bs);
             oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
             int           res;
@@ -2338,7 +2341,7 @@ static int create_tile_views(oapv_imgb_t *output_buffers[4], int tile_col, int t
 }
 
 // Selective decode implementation
-int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_decode, 
+int oapvd_decode_selective(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective_decode_t *sel_decode, 
                           oapvm_t mid, oapvd_stat_t *stat)
 {
     printf("DEBUG: oapvd_decode_selective function entered\n");
@@ -2353,23 +2356,23 @@ int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_d
     printf("DEBUG: Target mip level: %d\n", target_mip_level);
     
     // Read and parse frame header to get tile information
-    fseek(fp, 0, SEEK_SET);
+    bitr->seek(bitr, 0, SEEK_SET);
     
     // Read AU size (big-endian, like in oapv_app_dec.c)
     u8 size_buf[4];
-    fread(size_buf, 4, 1, fp);
+    bitr->read(bitr, size_buf, 4, 1);
     u32 au_size = (size_buf[0] << 24) | (size_buf[1] << 16) | (size_buf[2] << 8) | size_buf[3];
     stat->read += 4;
     
     // For selective I/O: Read entire AU first to parse headers and get tile sizes
     // Then we'll seek back and read only the target tile data
-    long au_start_pos = ftell(fp);
+    long au_start_pos = bitr->tell(bitr);
     
     u8 *au_buffer = (u8*)malloc(au_size);
     if(!au_buffer) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
-    fread(au_buffer, au_size, 1, fp);
+    bitr->read(bitr, au_buffer, au_size, 1);    // this is reading the whole access unit.
     
     // Parse bitstream using the buffer approach like normal decoder
     oapv_bitb_t bitb;
@@ -2469,7 +2472,7 @@ int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_d
                        sel_decode->actual_tile_width, sel_decode->actual_tile_height);
                        
                 // Check if this is a metadata-only call (no output buffers provided)
-                if(sel_decode->output_buffers[0] == NULL) {
+                if(sel_decode->output_buffer == NULL) {
                     printf("DEBUG: Metadata-only mode - returning frame info without decoding\n");
                     free(au_buffer);
                     return OAPV_OK;
@@ -2498,9 +2501,14 @@ int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_d
     oapv_imgb_t dummy_imgb;
     memset(&dummy_imgb, 0, sizeof(dummy_imgb));
     dummy_imgb.cs = OAPV_CS_SET(OAPV_CF_YCBCR422, 10, 0); // YUV422 10-bit
+    if (sel_decode->output_buffer)
+    {
+        dummy_imgb.cs = sel_decode->output_buffer->cs;  // use the destination cs.
+    }
     dummy_imgb.refcnt = 1;
     
-    ret = dec_frm_prepare(ctx, &dummy_imgb);
+    ret = dec_frm_prepare(ctx, &dummy_imgb, NULL); // no bs
+
     if(OAPV_FAILED(ret)) {
         printf("ERROR: Failed to prepare frame context: %d\n", ret);
         free(au_buffer);
@@ -2553,14 +2561,14 @@ int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_d
     au_buffer = NULL;
     
     // Seek to target tile position in file and read only that tile's data
-    fseek(fp, tile_file_position, SEEK_SET);
+    bitr->seek(bitr, tile_file_position, SEEK_SET);
     
     u8 *tile_data = (u8*)malloc(tile_size);
     if(!tile_data) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
     
-    size_t bytes_read = fread(tile_data, 1, tile_size, fp);
+    size_t bytes_read = bitr->read(bitr, tile_data, 1, tile_size);
     if(bytes_read != tile_size) {
         printf("ERROR: Failed to read tile data - expected %u bytes, got %zu bytes\n", tile_size, bytes_read);
         free(tile_data);
@@ -2654,19 +2662,19 @@ int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_d
         // Calculate destination address for Y component (account for tile position)
         int tile_x_pixels = target_tile_col * tile_w;
         int tile_y_pixels = target_tile_row * tile_h;
-        int y_stride_bytes = sel_decode->output_buffers[0]->s[0]; // stride is in bytes
-        u8 *y_base_bytes = (u8*)sel_decode->output_buffers[0]->a[0];
+        int y_stride_bytes = sel_decode->output_buffer->s[0]; // stride is in bytes
+        u8 *y_base_bytes = (u8*)sel_decode->output_buffer->a[0];
         u8 *y_dst_bytes = y_base_bytes + (tile_y_pixels * y_stride_bytes) + (tile_x_pixels * 2);
         u16 *y_dst = (u16*)y_dst_bytes;
         
         printf("DEBUG: Y buffer info: frame=%dx%d, stride_bytes=%d\n", 
-               sel_decode->output_buffers[0]->w[0], sel_decode->output_buffers[0]->h[0], 
+               sel_decode->output_buffer->w[0], sel_decode->output_buffer->h[0], 
                y_stride_bytes);
         printf("DEBUG: Y tile position: (%d,%d) pixels, dst_offset=%ld bytes\n", 
                tile_x_pixels, tile_y_pixels, y_dst_bytes - y_base_bytes);
         
         ret = dec_tile_comp(&tile, ctx, core, &y_bs, 0, 
-                           sel_decode->output_buffers[0]->s[0], 
+                           sel_decode->output_buffer->s[0], 
                            y_dst);
         if(OAPV_FAILED(ret)) {
             printf("ERROR: Failed to decode Y component: %d\n", ret);
@@ -2674,7 +2682,7 @@ int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_d
             printf("DEBUG: Y component decoded successfully\n");
             
             // Check if any data was actually written
-            short* y_data = (short*)sel_decode->output_buffers[0]->a[0];
+            short* y_data = (short*)sel_decode->output_buffer->a[0];
             int non_zero = 0;
             for(int i = 0; i < 100; i++) { // Check first 100 pixels
                 if(y_data[i] != 0) non_zero++;
@@ -2691,13 +2699,13 @@ int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_d
             
             // Calculate destination address for U component (4:2:2 - half width)
             int u_tile_x_pixels = tile_x_pixels / 2; // U is half width due to 4:2:2 chroma subsampling
-            int u_stride_bytes = sel_decode->output_buffers[1]->s[0]; // stride in bytes
-            u8 *u_base_bytes = (u8*)sel_decode->output_buffers[1]->a[0];
+            int u_stride_bytes = sel_decode->output_buffer->s[1]; // stride in bytes
+            u8 *u_base_bytes = (u8*)sel_decode->output_buffer->a[1];
             u8 *u_dst_bytes = u_base_bytes + (tile_y_pixels * u_stride_bytes) + (u_tile_x_pixels * 2);
             u16 *u_dst = (u16*)u_dst_bytes;
             
             ret = dec_tile_comp(&tile, ctx, core, &u_bs, 1, 
-                               sel_decode->output_buffers[1]->s[0], 
+                               sel_decode->output_buffer->s[1], 
                                u_dst);
             if(OAPV_FAILED(ret)) {
                 printf("ERROR: Failed to decode U component: %d\n", ret);
@@ -2714,13 +2722,13 @@ int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_d
             
             // Calculate destination address for V component (4:2:2 - half width)  
             int v_tile_x_pixels = tile_x_pixels / 2; // V is half width due to 4:2:2 chroma subsampling
-            int v_stride_bytes = sel_decode->output_buffers[2]->s[0]; // stride in bytes
-            u8 *v_base_bytes = (u8*)sel_decode->output_buffers[2]->a[0];
+            int v_stride_bytes = sel_decode->output_buffer->s[2]; // stride in bytes
+            u8 *v_base_bytes = (u8*)sel_decode->output_buffer->a[2];
             u8 *v_dst_bytes = v_base_bytes + (tile_y_pixels * v_stride_bytes) + (v_tile_x_pixels * 2);
             u16 *v_dst = (u16*)v_dst_bytes;
             
             ret = dec_tile_comp(&tile, ctx, core, &v_bs, 2, 
-                               sel_decode->output_buffers[2]->s[0], 
+                               sel_decode->output_buffer->s[2], 
                                v_dst);
             if(OAPV_FAILED(ret)) {
                 printf("ERROR: Failed to decode V component: %d\n", ret);
@@ -2862,12 +2870,12 @@ static int dec_thread_tile_selective(void *arg)
         
         // Decode each component directly into output buffer
         for(int c = 0; c < ctx->num_comp; c++) {
-            oapv_imgb_t *output_buf = sel_decode->output_buffers[c];
+            oapv_imgb_t *output_buf = sel_decode->output_buffer;
             if(!output_buf) continue;
             
             // Calculate component destination address using byte-based arithmetic
-            int comp_stride_bytes = output_buf->s[0]; // Stride in bytes for this component
-            u8 *comp_base_bytes = (u8*)output_buf->a[0];
+            int comp_stride_bytes = output_buf->s[c]; // Stride in bytes for this component
+            u8 *comp_base_bytes = (u8*)output_buf->a[c];
             
             // Adjust tile position for chroma subsampling (422 format has half width for chroma)
             int comp_tile_x_pixels = (c > 0 && ctx->cfi == 2) ? tile_x_pos / 2 : tile_x_pos;
@@ -2921,7 +2929,7 @@ static int dec_thread_tile_selective(void *arg)
 }
 
 // New multi-tile selective decoder implementation
-int oapvd_decode_selective_multi(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_decode, 
+int oapvd_decode_selective_multi(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective_decode_t *sel_decode, 
                                 oapvm_t mid, oapvd_stat_t *stat)
 {
     oapvd_ctx_t *ctx;
@@ -2940,22 +2948,22 @@ int oapvd_decode_selective_multi(oapvd_t did, FILE *fp, oapv_selective_decode_t 
     
     
     // Read and parse frame header to get tile information
-    fseek(fp, 0, SEEK_SET);
+    bitr->seek(bitr, 0, SEEK_SET);
     
     // Read AU size
     u8 size_buf[4];
-    fread(size_buf, 4, 1, fp);
+    bitr->read(bitr, size_buf, 4, 1);
     u32 au_size = (size_buf[0] << 24) | (size_buf[1] << 16) | (size_buf[2] << 8) | size_buf[3];
     stat->read += 4;
     
-    long au_start_pos = ftell(fp);
+    long au_start_pos = bitr->tell(bitr);
     
     // Read entire AU to parse headers
     u8 *au_buffer = (u8*)malloc(au_size);
     if(!au_buffer) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
-    fread(au_buffer, au_size, 1, fp);
+    bitr->read(bitr, au_buffer, au_size, 1);
     metrics.bytes_read += au_size;
     
     // Parse bitstream
@@ -3024,7 +3032,7 @@ int oapvd_decode_selective_multi(oapvd_t did, FILE *fp, oapv_selective_decode_t 
                 sel_decode->chroma_format = ctx->fh.fi.chroma_format_idc;
                 
                 // Check if metadata-only call
-                if(sel_decode->output_buffers[0] == NULL) {
+                if(sel_decode->output_buffer == NULL) {
                     free(au_buffer);
                     return OAPV_OK;
                 }
@@ -3046,9 +3054,12 @@ int oapvd_decode_selective_multi(oapvd_t did, FILE *fp, oapv_selective_decode_t 
     oapv_imgb_t dummy_imgb;
     memset(&dummy_imgb, 0, sizeof(dummy_imgb));
     dummy_imgb.cs = OAPV_CS_SET(OAPV_CF_YCBCR422, 10, 0);
+    if(sel_decode->output_buffer) {
+        dummy_imgb.cs = sel_decode->output_buffer->cs; // use the destination cs.
+    }
     dummy_imgb.refcnt = 1;
     
-    ret = dec_frm_prepare(ctx, &dummy_imgb);
+    ret = dec_frm_prepare(ctx, &dummy_imgb, NULL);  // no bs
     if(OAPV_FAILED(ret)) {
         free(au_buffer);
         return ret;
@@ -3148,8 +3159,8 @@ int oapvd_decode_selective_multi(oapvd_t did, FILE *fp, oapv_selective_decode_t 
     
     // Perform coalesced reads
     for(int b = 0; b < num_blocks; b++) {
-        fseek(fp, read_blocks[b].start_offset, SEEK_SET);
-        fread(read_blocks[b].buffer, read_blocks[b].total_size, 1, fp);
+        bitr->seek(bitr, read_blocks[b].start_offset, SEEK_SET);
+        bitr->read(bitr, read_blocks[b].buffer, read_blocks[b].total_size, 1);
         metrics.bytes_read += read_blocks[b].total_size;
         
         // Assign data pointers to tiles in this block

@@ -164,28 +164,47 @@ int count_tiles_from_coords(const int* tile_coords) {
     return count;
 }
 
+void delete_frame_buffer(oapv_imgb_t* imgb)
+{
+    if(imgb) {
+        for(int c = 0; c < imgb->np; ++c) {
+            if(imgb->a[c]) {
+                free(imgb->a[c]);
+            }
+        }
+
+        free(imgb);
+    }
+}
+
 // Create frame buffer for specific component
-oapv_imgb_t* create_frame_buffer(int width, int height, int component, int bit_depth) {
+oapv_imgb_t* create_frame_buffer(int width, int height, int num_components, int bit_depth) {
     oapv_imgb_t *imgb = malloc(sizeof(oapv_imgb_t));
     if (!imgb) return NULL;
     
     memset(imgb, 0, sizeof(oapv_imgb_t));
-    
-    if (component == 0) {  // Y component
-        imgb->w[0] = width;
-        imgb->h[0] = height;
-        imgb->s[0] = width * 2;
-    } else {  // U/V components (4:2:2)
-        imgb->w[0] = width / 2;
-        imgb->h[0] = height;
-        imgb->s[0] = (width / 2) * 2;
-    }
-    
-    int buffer_size = imgb->w[0] * imgb->h[0] * 2;
-    imgb->a[0] = calloc(buffer_size, 1);
-    if (!imgb->a[0]) {
-        free(imgb);
-        return NULL;
+
+    imgb->np = num_components;
+
+    for(int c = 0; c < num_components; ++c) {
+
+        if(c == 0) { // Y component
+            imgb->w[c] = width;
+            imgb->h[c] = height;
+            imgb->s[c] = width * 2;
+        }
+        else { // U/V components (4:2:2)
+            imgb->w[c] = width / 2;
+            imgb->h[c] = height;
+            imgb->s[c] = (width / 2) * 2;
+        }
+
+        int buffer_size = imgb->w[c] * imgb->h[c] * 2;
+        imgb->a[c] = calloc(buffer_size, 1);
+        if(!imgb->a[c]) {
+            delete_frame_buffer(imgb);
+            return NULL;
+        }
     }
     
     imgb->cs = OAPV_CS_SET(OAPV_CF_YCBCR422, bit_depth, 0);
@@ -195,36 +214,36 @@ oapv_imgb_t* create_frame_buffer(int width, int height, int component, int bit_d
 }
 
 // Write Y4M file for full frame
-void write_frame_y4m(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_buffer) {
+void write_frame_y4m(const char* filename, oapv_imgb_t* frame_buffer) {
     FILE* fp = fopen(filename, "wb");
     if (!fp) {
         printf("ERROR: Cannot create output file %s\n", filename);
         return;
     }
     
-    int width = y_buffer->w[0];
-    int height = y_buffer->h[0];
+    int width = frame_buffer->w[0];
+    int height = frame_buffer->h[0];
     
     // Y4M header for 4:2:2 10-bit
     fprintf(fp, "YUV4MPEG2 W%d H%d F25:1 Ip A1:1 C422p10\n", width, height);
     fprintf(fp, "FRAME\n");
     
     // Write Y plane
-    u16* y_data = (u16*)y_buffer->a[0];
+    u16* y_data = (u16*)frame_buffer->a[0];
     for(int i = 0; i < width * height; i++) {
         u16 val = y_data[i] >> 2; // Convert 10-bit to 8-bit for Y4M
         fputc((u8)val, fp);
     }
     
     // Write U plane (half width)
-    u16* u_data = (u16*)u_buffer->a[0];
+    u16* u_data = (u16*)frame_buffer->a[1];
     for(int i = 0; i < (width/2) * height; i++) {
         u16 val = u_data[i] >> 2;
         fputc((u8)val, fp);
     }
     
     // Write V plane (half width)
-    u16* v_data = (u16*)v_buffer->a[0];
+    u16* v_data = (u16*)frame_buffer->a[2];
     for(int i = 0; i < (width/2) * height; i++) {
         u16 val = v_data[i] >> 2;
         fputc((u8)val, fp);
@@ -234,15 +253,15 @@ void write_frame_y4m(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u
 }
 
 // Write raw file with header
-int write_frame_raw(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_buffer) {
+int write_frame_raw(const char* filename, oapv_imgb_t* frame_buffer) {
     FILE* fp = fopen(filename, "wb");
     if (!fp) {
         printf("ERROR: Cannot create output file %s - %s (errno: %d)\n", filename, strerror(errno), errno);
         return 0;
     }
     
-    int width = y_buffer->w[0];
-    int height = y_buffer->h[0];
+    int width = frame_buffer->w[0];
+    int height = frame_buffer->h[0];
     int bit_depth = 10;
     int chroma_format = 2; // 4:2:2
     int version = 1;
@@ -255,13 +274,13 @@ int write_frame_raw(const char* filename, oapv_imgb_t* y_buffer, oapv_imgb_t* u_
     fwrite(&version, sizeof(int), 1, fp);
     
     // Write Y plane
-    fwrite(y_buffer->a[0], width * height * 2, 1, fp);
+    fwrite(frame_buffer->a[0], width * height * 2, 1, fp);
     
     // Write U plane 
-    fwrite(u_buffer->a[0], (width/2) * height * 2, 1, fp);
+    fwrite(frame_buffer->a[1], (width/2) * height * 2, 1, fp);
     
     // Write V plane
-    fwrite(v_buffer->a[0], (width/2) * height * 2, 1, fp);
+    fwrite(frame_buffer->a[2], (width/2) * height * 2, 1, fp);
     
     fclose(fp);
     return 1;
@@ -285,11 +304,11 @@ void validate_quick(oapv_imgb_t* y_buffer, int num_tiles) {
 }
 
 // Full validation - check chroma patterns too
-void validate_full(oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_buffer, int num_tiles) {
+void validate_full(oapv_imgb_t* frame_buffer, int num_tiles) {
     // Y validation
-    u16* y_data = (u16*)y_buffer->a[0];
-    int width = y_buffer->w[0];
-    int height = y_buffer->h[0];
+    u16* y_data = (u16*)frame_buffer->a[0];
+    int width = frame_buffer->w[0];
+    int height = frame_buffer->h[0];
     
     int y_nonzero = 0;
     for(int i = 0; i < width * height; i++) {
@@ -297,8 +316,8 @@ void validate_full(oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_
     }
     
     // U/V validation  
-    u16* u_data = (u16*)u_buffer->a[0];
-    u16* v_data = (u16*)v_buffer->a[0];
+    u16* u_data = (u16*)frame_buffer->a[1];
+    u16* v_data = (u16*)frame_buffer->a[2];
     int chroma_width = width / 2;
     int chroma_pixels = chroma_width * height;
     
@@ -361,6 +380,36 @@ void validate_full(oapv_imgb_t* y_buffer, oapv_imgb_t* u_buffer, oapv_imgb_t* v_
     }
 }
 
+
+long file_bitreader_tell(oapvd_bitr_t* bitr)
+{
+    FILE *fp = (FILE *)bitr->data;
+
+    return ftell(fp);
+}
+
+int file_bitreader_seek(oapvd_bitr_t *bitr, long offset, int origin)
+{
+    FILE *fp = (FILE *)bitr->data;
+
+    return fseek(fp, offset, origin);
+}
+
+size_t file_bitreader_read(oapvd_bitr_t *bitr, void* buffer, size_t size, size_t count)
+{
+    FILE *fp = (FILE *)bitr->data;
+
+    return fread(buffer, size, count, fp);
+}
+
+void file_bitreader_init(oapvd_bitr_t* bitr, FILE* fp)
+{
+    bitr->data = fp;
+    bitr->tell = file_bitreader_tell;
+    bitr->seek = file_bitreader_seek;
+    bitr->read = file_bitreader_read;
+}
+
 // Run a single test configuration
 int run_test_config(const char* input_file, const test_config_t* config) {
     printf("\n=== Test: %s ===\n", config->name);
@@ -399,13 +448,16 @@ int run_test_config(const char* input_file, const test_config_t* config) {
     }
     
     oapvd_stat_t stat = {0};
+
+    oapvd_bitr_t bitr;
+    file_bitreader_init(&bitr, fp);
     
     // Get metadata
     int ret;
     if (config->test_type == TEST_SINGLE_TILE) {
-        ret = oapvd_decode_selective(decoder_id, fp, &sel_decode, 0, &stat);
+        ret = oapvd_decode_selective(decoder_id, &bitr, &sel_decode, 0, &stat);
     } else {
-        ret = oapvd_decode_selective_multi(decoder_id, fp, &sel_decode, 0, &stat);
+        ret = oapvd_decode_selective_multi(decoder_id, &bitr, &sel_decode, 0, &stat);
     }
     
     if (OAPV_FAILED(ret)) {
@@ -420,25 +472,18 @@ int run_test_config(const char* input_file, const test_config_t* config) {
            sel_decode.actual_tile_width, sel_decode.actual_tile_height);
     
     // Create output buffers if needed
-    oapv_imgb_t *y_buffer = NULL, *u_buffer = NULL, *v_buffer = NULL;
+    oapv_imgb_t *frame_buffer = NULL;
     if (config->output_format != OUTPUT_NONE || config->validation_level == VALIDATE_FULL) {
-        y_buffer = create_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 0, sel_decode.bit_depth);
-        u_buffer = create_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 1, sel_decode.bit_depth);
-        v_buffer = create_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 2, sel_decode.bit_depth);
+        frame_buffer = create_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 3, sel_decode.bit_depth);
         
-        if (!y_buffer || !u_buffer || !v_buffer) {
+        if (!frame_buffer) {
             printf("ERROR: Failed to allocate frame buffers\n");
-            if (y_buffer) { free(y_buffer->a[0]); free(y_buffer); }
-            if (u_buffer) { free(u_buffer->a[0]); free(u_buffer); }
-            if (v_buffer) { free(v_buffer->a[0]); free(v_buffer); }
             oapvd_delete(decoder_id);
             fclose(fp);
             return -1;
         }
         
-        sel_decode.output_buffers[0] = y_buffer;
-        sel_decode.output_buffers[1] = u_buffer;
-        sel_decode.output_buffers[2] = v_buffer;
+        sel_decode.output_buffer = frame_buffer;
     }
     
     // Run tests for each thread count
@@ -458,9 +503,9 @@ int run_test_config(const char* input_file, const test_config_t* config) {
         
         // Run the decode
         if (config->test_type == TEST_SINGLE_TILE) {
-            ret = oapvd_decode_selective(decoder_id, fp, &sel_decode, 0, &stat);
+            ret = oapvd_decode_selective(decoder_id, &bitr, &sel_decode, 0, &stat);
         } else {
-            ret = oapvd_decode_selective_multi(decoder_id, fp, &sel_decode, 0, &stat);
+            ret = oapvd_decode_selective_multi(decoder_id, &bitr, &sel_decode, 0, &stat);
         }
         
         clock_t end_time = clock();
@@ -486,11 +531,11 @@ int run_test_config(const char* input_file, const test_config_t* config) {
             }
             
             // Validation
-            if (y_buffer) {
+            if (frame_buffer) {
                 if (config->validation_level == VALIDATE_QUICK) {
-                    validate_quick(y_buffer, num_tiles);
+                    validate_quick(frame_buffer, num_tiles);
                 } else if (config->validation_level == VALIDATE_FULL) {
-                    validate_full(y_buffer, u_buffer, v_buffer, num_tiles);
+                    validate_full(frame_buffer, num_tiles);
                 }
             }
         } else {
@@ -498,7 +543,7 @@ int run_test_config(const char* input_file, const test_config_t* config) {
         }
         
         // Write output files (for multi-tile tests, include thread count to avoid contention)
-        if (config->output_format != OUTPUT_NONE && y_buffer) {
+        if (config->output_format != OUTPUT_NONE && frame_buffer) {
             char output_filename[256];
             
             if (config->output_format == OUTPUT_Y4M) {
@@ -507,7 +552,7 @@ int run_test_config(const char* input_file, const test_config_t* config) {
                 } else {
                     snprintf(output_filename, sizeof(output_filename), "output/%s.y4m", config->name);
                 }
-                write_frame_y4m(output_filename, y_buffer, u_buffer, v_buffer);
+                write_frame_y4m(output_filename, frame_buffer);
                 printf("Written Y4M: %s\n", output_filename);
             } else if (config->output_format == OUTPUT_RAW) {
                 if (config->test_type == TEST_MULTI_TILE) {
@@ -515,7 +560,7 @@ int run_test_config(const char* input_file, const test_config_t* config) {
                 } else {
                     snprintf(output_filename, sizeof(output_filename), "output/%s.raw", config->name);
                 }
-                if (write_frame_raw(output_filename, y_buffer, u_buffer, v_buffer)) {
+                if (write_frame_raw(output_filename, frame_buffer)) {
                     printf("Written RAW: %s\n", output_filename);
                 }
             }
@@ -523,9 +568,7 @@ int run_test_config(const char* input_file, const test_config_t* config) {
     }
     
     // Cleanup
-    if (y_buffer) { free(y_buffer->a[0]); free(y_buffer); }
-    if (u_buffer) { free(u_buffer->a[0]); free(u_buffer); }
-    if (v_buffer) { free(v_buffer->a[0]); free(v_buffer); }
+    delete_frame_buffer(frame_buffer);
     oapvd_delete(decoder_id);
     fclose(fp);
     
