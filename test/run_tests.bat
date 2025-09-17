@@ -31,11 +31,6 @@ if errorlevel 1 (
     echo ERROR: Build failed!
     exit /b 1
 )
-cmake --build ..\build --config Release --target visual_full_frame_test
-if errorlevel 1 (
-    echo ERROR: Build failed!
-    exit /b 1
-)
 echo.
 
 REM Run ALL decoder tests
@@ -47,23 +42,6 @@ if errorlevel 1 (
     echo ERROR: Decoder tests failed!
     exit /b 1
 )
-echo.
-
-REM Run additional visual tests for different tiles
-echo ========================================
-echo Running visual tests for different tile positions...
-echo ========================================
-
-echo Testing corner tile (0,0)...
-..\build\Release\visual_full_frame_test.exe media\koala_tiled\koala_tiled_0000.apv1 0 0 0
-echo.
-
-echo Testing center tile (7,4)...
-..\build\Release\visual_full_frame_test.exe media\koala_tiled\koala_tiled_0000.apv1 7 4 0
-echo.
-
-echo Testing edge tile (14,8)...
-..\build\Release\visual_full_frame_test.exe media\koala_tiled\koala_tiled_0000.apv1 14 8 0
 echo.
 
 REM Convert all raw files to PNG

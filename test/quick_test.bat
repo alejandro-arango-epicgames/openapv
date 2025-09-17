@@ -5,25 +5,29 @@ echo Quick OpenAPV Test
 echo ==================
 echo.
 
-REM Run the main 6x4 multi-tile test
-echo Running 6x4 multi-tile test...
-..\build\Release\decoder_test.exe media\koala_tiled\koala_tiled_0000.apv1 multi_middle_6x4_scaling
-if errorlevel 1 goto error
+REM Create output directory if it doesn't exist
+if not exist output mkdir output
+
+REM Clean previous test outputs
+echo Cleaning previous test outputs...
+del /Q output\*.raw 2>nul
+del /Q output\*.y4m 2>nul
+del /Q output\*.png 2>nul
 echo.
 
-REM Convert the output to PNG
-if exist output\multi_middle_6x4_scaling.raw (
-    echo Converting to PNG...
-    python src\convert_tile_to_png.py output\multi_middle_6x4_scaling.raw
-    if errorlevel 1 echo WARNING: PNG conversion failed
-    echo.
-    
-    REM Open the result
-    if exist output\multi_middle_6x4_scaling_rgb.png (
-        echo Opening result...
-        start output\multi_middle_6x4_scaling_rgb.png
-    )
+REM Build the tests
+echo Building decoder tests...
+cmake --build ..\build --config Release --target decoder_test
+if errorlevel 1 (
+    echo ERROR: Build failed!
+    exit /b 1
 )
+
+REM Run the main 6x4 multi-tile test
+echo Running 6x4 multi-tile test...
+..\build\Release\decoder_test.exe media\koala_tiled\koala_tiled_0000.apv1 multi_all_mip0
+if errorlevel 1 goto error
+echo.
 
 echo Test complete!
 goto end
