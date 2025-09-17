@@ -32,7 +32,7 @@ static test_config_t test_configs[] = {
         .mip_level = 0,
         .tile_coords = {0, 0, -1, -1}, // Sentinel terminated
         .thread_counts = {1, 0}, // Single thread, terminated by 0
-        .output_format = OUTPUT_Y4M,
+        .output_format = OUTPUT_RAW,
         .measure_performance = 0,
         .validation_level = VALIDATE_FULL
     },
@@ -47,7 +47,16 @@ static test_config_t test_configs[] = {
         .measure_performance = 0,
         .validation_level = VALIDATE_FULL
     },
-    
+    { .name = "single_tile_mip4_origin",
+      .description = "Single tile at origin (0,0) from mip level 4",
+      .test_type = TEST_SINGLE_TILE,
+      .mip_level = 4,
+      .tile_coords = { 0, 0, -1, -1 }, // Sentinel terminated
+      .thread_counts = { 1, 0 },       // Single thread, terminated by 0
+      .output_format = OUTPUT_RAW,
+      .measure_performance = 0,
+      .validation_level = VALIDATE_FULL 
+    },
     // Multi-tile performance tests (from test_multi_tile_performance.c patterns)
     {
         .name = "multi_2x2_contiguous",
