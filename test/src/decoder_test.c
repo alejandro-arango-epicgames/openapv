@@ -6,6 +6,9 @@
 #include <errno.h>
 #include "../../inc/oapv.h"
 
+// defined in oapv_app_util.h
+#define ALIGN_VAL(val, align) ((((val) + (align) - 1) / (align)) * (align))
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 
@@ -32,7 +35,7 @@ static test_config_t test_configs[] = {
         .mip_level = 0,
         .tile_coords = {0, 0, -1, -1}, // Sentinel terminated
         .thread_counts = {1, 0}, // Single thread, terminated by 0
-        .output_format = OUTPUT_RAW,
+        .output_format = OUTPUT_Y4M,
         .measure_performance = 0,
         .validation_level = VALIDATE_FULL
     },
@@ -194,22 +197,27 @@ oapv_imgb_t* create_frame_buffer(int width, int height, int num_components, int 
     memset(imgb, 0, sizeof(oapv_imgb_t));
 
     imgb->np = num_components;
+    int bd = (bit_depth + 7) >> 3; 
 
     for(int c = 0; c < num_components; ++c) {
 
         if(c == 0) { // Y component
             imgb->w[c] = width;
             imgb->h[c] = height;
-            imgb->s[c] = width * 2;
         }
         else { // U/V components (4:2:2)
             imgb->w[c] = width / 2;
             imgb->h[c] = height;
-            imgb->s[c] = (width / 2) * 2;
         }
+    
+        // width and height need to be aligned to macroblock size
+        imgb->aw[c] = ALIGN_VAL(imgb->w[c], OAPV_MB_W);
+        imgb->s[c] = imgb->aw[c] * bd;
+        imgb->ah[c] = ALIGN_VAL(imgb->h[c], OAPV_MB_H);
+        imgb->e[c] = imgb->ah[c];
 
-        int buffer_size = imgb->w[c] * imgb->h[c] * 2;
-        imgb->a[c] = calloc(buffer_size, 1);
+        imgb->bsize[c] = imgb->s[c] * imgb->e[c];
+        imgb->a[c] = imgb->baddr[c] = calloc(imgb->bsize[c], 1);
         if(!imgb->a[c]) {
             delete_frame_buffer(imgb);
             return NULL;
@@ -232,30 +240,20 @@ void write_frame_y4m(const char* filename, oapv_imgb_t* frame_buffer) {
     
     int width = frame_buffer->w[0];
     int height = frame_buffer->h[0];
+    int bd = OAPV_CS_GET_BYTE_DEPTH(frame_buffer->cs); /* byte unit */
     
     // Y4M header for 4:2:2 10-bit
     fprintf(fp, "YUV4MPEG2 W%d H%d F25:1 Ip A1:1 C422p10\n", width, height);
     fprintf(fp, "FRAME\n");
-    
-    // Write Y plane
-    u16* y_data = (u16*)frame_buffer->a[0];
-    for(int i = 0; i < width * height; i++) {
-        u16 val = y_data[i] >> 2; // Convert 10-bit to 8-bit for Y4M
-        fputc((u8)val, fp);
-    }
-    
-    // Write U plane (half width)
-    u16* u_data = (u16*)frame_buffer->a[1];
-    for(int i = 0; i < (width/2) * height; i++) {
-        u16 val = u_data[i] >> 2;
-        fputc((u8)val, fp);
-    }
-    
-    // Write V plane (half width)
-    u16* v_data = (u16*)frame_buffer->a[2];
-    for(int i = 0; i < (width/2) * height; i++) {
-        u16 val = v_data[i] >> 2;
-        fputc((u8)val, fp);
+ 
+    // Note: Buffer stride may have some padding for MB alignement.
+    for(int i = 0; i < frame_buffer->np; i++) {
+        u8 *p8 = (unsigned char *)frame_buffer->a[i] + (frame_buffer->s[i] * frame_buffer->y[i]) + (frame_buffer->x[i] * bd);
+
+        for(int j = 0; j < frame_buffer->h[i]; j++) {
+            fwrite(p8, frame_buffer->w[i] * bd, 1, fp);
+            p8 += frame_buffer->s[i];
+        }
     }
     
     fclose(fp);
@@ -281,16 +279,19 @@ int write_frame_raw(const char* filename, oapv_imgb_t* frame_buffer) {
     fwrite(&bit_depth, sizeof(int), 1, fp);
     fwrite(&chroma_format, sizeof(int), 1, fp);
     fwrite(&version, sizeof(int), 1, fp);
-    
-    // Write Y plane
-    fwrite(frame_buffer->a[0], width * height * 2, 1, fp);
-    
-    // Write U plane 
-    fwrite(frame_buffer->a[1], (width/2) * height * 2, 1, fp);
-    
-    // Write V plane
-    fwrite(frame_buffer->a[2], (width/2) * height * 2, 1, fp);
-    
+
+    int bd = OAPV_CS_GET_BYTE_DEPTH(frame_buffer->cs);
+
+    // Note: Buffer stride may have some padding for MB alignement.
+    for(int i = 0; i < frame_buffer->np; i++) {
+        u8 *p8 = (unsigned char *)frame_buffer->a[i] + (frame_buffer->s[i] * frame_buffer->y[i]) + (frame_buffer->x[i] * bd);
+
+        for(int j = 0; j < frame_buffer->h[i]; j++) {
+            fwrite(p8, frame_buffer->w[i] * bd, 1, fp);
+            p8 += frame_buffer->s[i];
+        }
+    }
+
     fclose(fp);
     return 1;
 }
