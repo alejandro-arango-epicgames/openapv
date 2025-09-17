@@ -888,6 +888,14 @@ int main(int argc, const char **argv)
             w = max(w / 2, 1);
             h = max(h / 2, 1);
         }
+
+        // Log mipmap levels that will be generated
+        logv2("Generating %d mipmap levels:\n", num_mips);
+        logv2("  Mip 0: %dx%d (primary frame)\n", param->w, param->h);
+        for(int i = 0; i < num_mips; i++) {
+            logv2("  Mip %d: %dx%d\n", i + 1,
+                  cdesc.param[i + 1].w, cdesc.param[i + 1].h);
+        }
     }
 
     cdesc.max_num_frms = 1 + num_mips;  // TMV
@@ -1032,6 +1040,11 @@ int main(int argc, const char **argv)
             {
                 src_frm_idx = start_mip_idx + mip_idx - 1;
             }
+
+            logv3("Encoding mip level %d (%dx%d)...\n",
+                  mip_idx + 1,
+                  ifrms.frm[dst_frm_idx].imgb->w[0],
+                  ifrms.frm[dst_frm_idx].imgb->h[0]);
 
             imgb_calc_mip(ifrms.frm[dst_frm_idx].imgb, ifrms.frm[src_frm_idx].imgb);
             ifrms.frm[dst_frm_idx].group_id = 2 + mip_idx;  // non primary frame must have different group id.

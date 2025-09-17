@@ -36,6 +36,8 @@
 extern "C" {
 #endif
 
+#include <stdio.h>
+
 #if defined(ANDROID) || defined(OAPV_STATIC_DEFINE)
     #define OAPV_EXPORT
 #else
@@ -643,6 +645,25 @@ struct oapvd_stat {
 };
 
 /*****************************************************************************
+ * selective decode configuration
+ *****************************************************************************/
+typedef struct oapv_selective_decode oapv_selective_decode_t;
+struct oapv_selective_decode {
+    int mip_level;                          // Which mip level to decode (0=full, 1=half, etc.)
+    int num_tiles;                          // Number of tiles to decode
+    int tile_coords[2*OAPV_MAX_TILES];      // Pairs of [col, row] for each tile
+    oapv_imgb_t *output_buffers[4];         // Per-channel output buffers (Y, U, V, A)
+    
+    // Frame metadata (filled by decoder)
+    int actual_frame_width;                 // Actual frame width from mip level metadata
+    int actual_frame_height;                // Actual frame height from mip level metadata  
+    int actual_tile_width;                  // Actual tile width in pixels (converted from MBs)
+    int actual_tile_height;                 // Actual tile height in pixels (converted from MBs)
+    int bit_depth;                          // Bit depth from frame metadata
+    int chroma_format;                      // Chroma format from frame metadata
+};
+
+/*****************************************************************************
  * metadata payload
  *****************************************************************************/
 typedef struct oapvm_payload oapvm_payload_t;
@@ -689,6 +710,8 @@ OAPV_EXPORT oapvd_t oapvd_create(oapvd_cdesc_t *cdesc, int *err);
 OAPV_EXPORT void oapvd_delete(oapvd_t did);
 OAPV_EXPORT int oapvd_config(oapvd_t did, int cfg, void *buf, int *size);
 OAPV_EXPORT int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid, oapvd_stat_t *stat);
+OAPV_EXPORT int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
+OAPV_EXPORT int oapvd_decode_selective_multi(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
 
 /*****************************************************************************
  * interface for utility
