@@ -408,6 +408,29 @@ struct oapvd_ctx {
 #endif // ENABLE_DECODER
 ///////////////////////////////////////////////////////////////////////////////
 
+// Selective decode structures
+typedef struct {
+    u8 *compressed_data;    // Compressed tile data buffer
+    u32 size;               // Size of compressed data
+    int col, row;           // Tile position
+    int mip_level;          // Mip level this tile belongs to
+} oapv_tile_data_t;
+
+typedef struct {
+    u8 *fast_buffers[OAPV_MAX_THREADS][4];     // Thread-local buffers: 64K, 256K, 1M, 4M
+    u32 fast_buffer_sizes[4];                   // Buffer sizes
+    volatile int buffer_in_use[OAPV_MAX_THREADS][4]; // Usage flags
+    u32 malloc_threshold;                       // Threshold for malloc fallback
+} oapv_tile_buffer_mgr_t;
+
+typedef struct {
+    int tile_col, tile_row;                     // Tile coordinates
+    int mip_level;                              // Mip level
+    long file_offset;                           // Position in file
+    u32 compressed_size;                        // Size of compressed data
+    volatile int status;                        // Processing status
+} oapv_tile_work_item_t;
+
 #define OAPV_FRAME_INFO_BYTE (112)
 #define OAPV_PBU_HEADER_BYTE (32)
 

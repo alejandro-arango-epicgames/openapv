@@ -31,6 +31,12 @@
 
 #include "oapv_def.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <time.h>
+#endif
+
 static void imgb_pad(oapv_imgb_t *imgb, int aw, int ah, int comp_sft[N_C][2])
 {
     int imgb_w = imgb->w[0];
@@ -1530,10 +1536,13 @@ static int dec_block(oapvd_ctx_t *ctx, oapvd_core_t *core, int log2_w, int log2_
     // DC prediction
     core->coef[0] = core->dc_diff + core->prev_dc[c];
     core->prev_dc[c] = core->coef[0];
+    
     // Inverse quantization
     ctx->fn_dquant[0](core->coef, core->q_mat[c], log2_w, log2_h, core->dq_shift[c]);
+    
     // Inverse transform
     ctx->fn_itx[0](core->coef, ITX_SHIFT1, ITX_SHIFT2(bit_depth), 1 << log2_w);
+    
     return OAPV_OK;
 }
 
@@ -1619,6 +1628,7 @@ static int dec_tile_comp(oapvd_tile_t *tile, oapvd_ctx_t *ctx, oapvd_core_t *cor
     int  ret;
     s16 *d16;
 
+
     mb_h = OAPV_MB_H >> ctx->comp_sft[c][1];
     mb_w = OAPV_MB_W >> ctx->comp_sft[c][0];
 
@@ -1636,11 +1646,15 @@ static int dec_tile_comp(oapvd_tile_t *tile, oapvd_ctx_t *ctx, oapvd_core_t *cor
 
                     // parse DC coefficient
                     ret = oapvd_vlc_dc_coef(bs, &core->dc_diff, &core->kparam_dc[c]);
-                    oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
+                    if(OAPV_FAILED(ret)) {
+                        return ret;
+                    }
 
                     // parse AC coefficient
                     ret = oapvd_vlc_ac_coef(bs, core->coef, &core->kparam_ac[c]);
-                    oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
+                    if(OAPV_FAILED(ret)) {
+                        return ret;
+                    }
                     DUMP_COEF(core->coef, OAPV_BLK_D, blk_x, blk_y, c);
 
                     // decode a block
@@ -1669,10 +1683,12 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
     oapvd_ctx_t *ctx = core->ctx;
     oapv_bs_t    bs; // bs for 'tile()' syntax
 
+
+
     oapv_bsr_init(&bs, tile->bs_beg + OAPV_TILE_SIZE_LEN, tile->data_size, NULL);
+
     ret = oapvd_vlc_tile_header(&bs, ctx, &tile->th);
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
-
     for(c = 0; c < ctx->num_comp; c++) {
         core->qp[c] = tile->th.tile_qp[c];
         u8 dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
@@ -1695,7 +1711,8 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
         s16 *dst;
         oapv_bs_t bsc; // bs for 'tile_data()' syntax
 
-        oapv_bsr_init(&bsc, BSR_GET_CUR(&bs), tile->th.tile_data_size[c], NULL);
+        u8 *comp_start = BSR_GET_CUR(&bs);
+        oapv_bsr_init(&bsc, comp_start, tile->th.tile_data_size[c], NULL);
 
         if(OAPV_CS_GET_FORMAT(ctx->imgb->cs) == OAPV_CF_PLANAR2) {
             tc = c > 0 ? 1 : 0;
@@ -1708,6 +1725,7 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
             s_dst = ctx->imgb->s[c];
         }
 
+        
         ret = dec_tile_comp(tile, ctx, core, &bsc, c, s_dst, dst);
         oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
@@ -1715,6 +1733,88 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
         BSR_MOVE_BYTE_ALIGN(&bs, tile->th.tile_data_size[c]);
     }
 
+    oapvd_vlc_tile_dummy_data(&bs);
+    return OAPV_OK;
+}
+
+// Decode tile directly into provided views (for selective decoding)
+static int dec_tile_to_views(oapvd_core_t *core, oapv_bs_t *tile_bs, 
+                             oapv_imgb_t *tile_views[4], oapv_th_t *tile_header)
+{
+    int          ret, midx, x, y, c;
+    oapvd_ctx_t *ctx = core->ctx;
+    oapv_bs_t    bs;
+    
+    printf("  tile_bs size: %u bytes\n", tile_bs->size);
+    printf("  First 8 bytes of selective tile data: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+           tile_bs->beg[0], tile_bs->beg[1], tile_bs->beg[2], tile_bs->beg[3],
+           tile_bs->beg[4], tile_bs->beg[5], tile_bs->beg[6], tile_bs->beg[7]);
+    
+    // Initialize bitstream from provided tile data
+    bs = *tile_bs;
+    
+    // Parse tile header
+    ret = oapvd_vlc_tile_header(&bs, ctx, tile_header);
+    oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
+    
+    // Set up quantization parameters for each component
+    for(c = 0; c < ctx->num_comp; c++) {
+        core->qp[c] = tile_header->tile_qp[c];
+        u8 dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
+        core->dq_shift[c] = ctx->bit_depth - 2 - (core->qp[c] / 6);
+        
+        core->kparam_dc[c] = OAPV_KPARAM_DC_MAX;
+        core->kparam_ac[c] = OAPV_KPARAM_AC_MIN;
+        core->prev_dc[c] = 0;
+        
+        midx = 0;
+        for(y = 0; y < OAPV_BLK_H; y++) {
+            for(x = 0; x < OAPV_BLK_W; x++) {
+                core->q_mat[c][midx++] = dq_scale * ctx->fh.q_matrix[c][y][x];
+            }
+        }
+    }
+    
+    // Decode each component to its respective view
+    for(c = 0; c < ctx->num_comp; c++) {
+        int  tc, s_dst;
+        s16 *dst;
+        oapv_bs_t bsc; // bs for 'tile_data()' syntax
+
+        // Skip if no view provided for this component
+        if(!tile_views[c]) {
+            continue;
+        }
+        
+        oapv_bsr_init(&bsc, BSR_GET_CUR(&bs), tile_header->tile_data_size[c], NULL);
+        
+        // Set up destination based on color format
+        if(OAPV_CS_GET_FORMAT(tile_views[c]->cs) == OAPV_CF_PLANAR2) {
+            tc = c > 0 ? 1 : 0;
+            dst = tile_views[c]->a[tc];
+            dst += (c > 1) ? 1 : 0;
+            s_dst = tile_views[c]->s[tc];
+        }
+        else {
+            dst = tile_views[c]->a[c];
+            s_dst = tile_views[c]->s[c];
+        }
+        
+        // Create a dummy tile structure for compatibility with dec_tile_comp
+        oapvd_tile_t dummy_tile;
+        dummy_tile.th = *tile_header;
+        dummy_tile.x = 0; // Relative to tile view
+        dummy_tile.y = 0; // Relative to tile view
+        dummy_tile.w = tile_views[c]->w[0];
+        dummy_tile.h = tile_views[c]->h[0];
+
+        ret = dec_tile_comp(&dummy_tile, ctx, core, &bsc, c, s_dst, dst);
+        oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
+        
+        // Move to next component data
+        BSR_MOVE_BYTE_ALIGN(&bs, tile_header->tile_data_size[c]);
+    }
+    
     oapvd_vlc_tile_dummy_data(&bs);
     return OAPV_OK;
 }
@@ -2137,8 +2237,951 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
     return OAPV_OK;
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// end of decoder code
+// Calculate file offsets for all tiles based on frame header
+static int calculate_tile_offsets(oapv_fh_t *fh, long frame_data_start, long *tile_offsets)
+{
+    long current_offset = frame_data_start;
+    int num_tiles = 0;
+    
+    // Calculate number of tiles
+    int tile_w = fh->tile_width_in_mbs * OAPV_MB_W;
+    int tile_h = fh->tile_height_in_mbs * OAPV_MB_H;
+    int tiles_per_row = oapv_div_round_up(fh->fi.frame_width, tile_w);
+    int tiles_per_col = oapv_div_round_up(fh->fi.frame_height, tile_h);
+    num_tiles = tiles_per_row * tiles_per_col;
+    
+    // Calculate offsets using tile sizes from frame header
+    for(int i = 0; i < num_tiles; i++) {
+        tile_offsets[i] = current_offset; // Point to start of tile (including 4-byte size prefix)
+        current_offset += 4 + fh->tile_size[i]; // Size prefix + tile data
+    }
+    
+    return num_tiles;
+}
+
+// Initialize thread-local buffer manager
+static int init_tile_buffer_manager(oapv_tile_buffer_mgr_t *mgr)
+{
+    // Initialize buffer sizes: 64K, 256K, 1M, 4M
+    mgr->fast_buffer_sizes[0] = 64 * 1024;
+    mgr->fast_buffer_sizes[1] = 256 * 1024;
+    mgr->fast_buffer_sizes[2] = 1024 * 1024;
+    mgr->fast_buffer_sizes[3] = 4 * 1024 * 1024;
+    mgr->malloc_threshold = 8 * 1024 * 1024; // 8MB threshold
+    
+    // Allocate buffers for each thread
+    for(int thread_id = 0; thread_id < OAPV_MAX_THREADS; thread_id++) {
+        for(int i = 0; i < 4; i++) {
+            mgr->fast_buffers[thread_id][i] = (u8*)malloc(mgr->fast_buffer_sizes[i]);
+            if(!mgr->fast_buffers[thread_id][i]) {
+                return OAPV_ERR_OUT_OF_MEMORY;
+            }
+            mgr->buffer_in_use[thread_id][i] = 0;
+        }
+    }
+    
+    return OAPV_OK;
+}
+
+// Get buffer for compressed tile data
+static u8* get_tile_buffer(oapv_tile_buffer_mgr_t *mgr, int thread_id, u32 needed_size, int *buffer_type)
+{
+    // Fast path: thread-local buffers
+    if(thread_id >= 0 && thread_id < OAPV_MAX_THREADS) {
+        for(int i = 0; i < 4; i++) {
+            if(mgr->fast_buffer_sizes[i] >= needed_size) {
+                *buffer_type = i;
+                return mgr->fast_buffers[thread_id][i];
+            }
+        }
+    }
+    
+    // Fallback: malloc for large tiles
+    *buffer_type = -1; // Indicates malloc'd buffer
+    return (u8*)malloc(needed_size);
+}
+
+// Return buffer (only needed for malloc'd buffers)
+static void return_tile_buffer(oapv_tile_buffer_mgr_t *mgr, u8 *buffer, int buffer_type)
+{
+    if(buffer_type == -1) { // malloc'd buffer
+        free(buffer);
+    }
+    // Thread-local buffers don't need explicit return
+}
+
+// Create tile view pointing into user output buffer  
+static int create_tile_views(oapv_imgb_t *output_buffers[4], int tile_col, int tile_row, 
+                            int tile_w, int tile_h, oapv_imgb_t *views[4])
+{
+    for(int c = 0; c < 4; c++) {
+        if(!output_buffers[c]) continue;
+        
+        views[c] = (oapv_imgb_t*)malloc(sizeof(oapv_imgb_t));
+        if(!views[c]) return OAPV_ERR_OUT_OF_MEMORY;
+        
+        // Copy buffer properties  
+        views[c]->cs = output_buffers[c]->cs;
+        views[c]->w[0] = output_buffers[c]->w[0];
+        views[c]->h[0] = output_buffers[c]->h[0]; 
+        views[c]->s[0] = output_buffers[c]->s[0];
+        views[c]->a[0] = output_buffers[c]->a[0];
+        views[c]->refcnt = 1;
+    }
+    
+    return OAPV_OK;
+}
+
+// Selective decode implementation
+int oapvd_decode_selective(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_decode,
+                          oapvm_t mid, oapvd_stat_t *stat)
+{
+    oapvd_ctx_t *ctx;
+    int ret = OAPV_OK;
+
+    ctx = dec_id_to_ctx(did);
+    oapv_assert_rv(ctx, OAPV_ERR_INVALID_ARGUMENT);
+
+    // Get target mip level from selective decode request
+    int target_mip_level = sel_decode->mip_level;
+    
+    // Read and parse frame header to get tile information
+    fseek(fp, 0, SEEK_SET);
+    
+    // Read AU size (big-endian, like in oapv_app_dec.c)
+    u8 size_buf[4];
+    fread(size_buf, 4, 1, fp);
+    u32 au_size = (size_buf[0] << 24) | (size_buf[1] << 16) | (size_buf[2] << 8) | size_buf[3];
+    stat->read += 4;
+    
+    // For selective I/O: Read entire AU first to parse headers and get tile sizes
+    // Then we'll seek back and read only the target tile data
+    long au_start_pos = ftell(fp);
+    
+    u8 *au_buffer = (u8*)malloc(au_size);
+    if(!au_buffer) {
+        return OAPV_ERR_OUT_OF_MEMORY;
+    }
+    fread(au_buffer, au_size, 1, fp);
+    
+    // Parse bitstream using the buffer approach like normal decoder
+    oapv_bitb_t bitb;
+    bitb.addr = au_buffer;
+    bitb.ssize = au_size;
+    
+    // Check signature from buffer
+    u32 signature = oapv_bsr_read_direct(bitb.addr, 32);
+    if(signature != 0x61507631) { // 'aPv1' expected by normal decoder
+        printf("ERROR: Invalid signature: 0x%08X (expected aPv1)\n", signature);
+        free(au_buffer);
+        return OAPV_ERR_MALFORMED_BITSTREAM;
+    }
+    
+    // Navigate through PBUs using cur_read_size approach like original decoder
+    int current_frame = 0;
+    u32 cur_read_size = 4; // Start after signature
+    oapv_bs_t bs;
+    
+    // Loop through PBUs until we find the target mip level
+    while(cur_read_size < bitb.ssize && current_frame <= target_mip_level) {
+        u32 remain = bitb.ssize - cur_read_size;
+        if(remain < 8) {
+            printf("ERROR: Not enough data for PBU header at pos %d\n", cur_read_size);
+            free(au_buffer);
+            return OAPV_ERR_MALFORMED_BITSTREAM;
+        }
+        
+        // Initialize bitstream reader at current position
+        oapv_bsr_init(&bs, (u8*)bitb.addr + cur_read_size, remain, NULL);
+        
+        // Read PBU size
+        u32 pbu_size;
+        ret = oapvd_vlc_pbu_size(&bs, &pbu_size);
+        if(OAPV_FAILED(ret)) {
+            printf("ERROR: Failed to parse PBU size for frame %d: %d\n", current_frame, ret);
+            free(au_buffer);
+            return ret;
+        }
+        
+        // Validate PBU size
+        remain -= 4; // 4 bytes consumed for pbu_size
+        if(pbu_size > remain) {
+            printf("ERROR: PBU size %d exceeds remaining data %d at pos %d\n", pbu_size, remain, cur_read_size);
+            free(au_buffer);
+            return OAPV_ERR_MALFORMED_BITSTREAM;
+        }
+        
+        // Read PBU header  
+        oapv_pbuh_t pbuh;
+        ret = oapvd_vlc_pbu_header(&bs, &pbuh);
+        if(OAPV_FAILED(ret)) {
+            printf("ERROR: Failed to parse PBU header for frame %d: %d\n", current_frame, ret);
+            free(au_buffer);
+            return ret;
+        }
+        
+        // Check if this is a frame PBU
+        if(pbuh.pbu_type == OAPV_PBU_TYPE_PRIMARY_FRAME ||
+           pbuh.pbu_type == OAPV_PBU_TYPE_NON_PRIMARY_FRAME) {
+
+            if(current_frame == target_mip_level) {
+                // Found target frame - parse its header
+                ret = oapvd_vlc_frame_header(&bs, &ctx->fh);
+                if(OAPV_FAILED(ret)) {
+                    printf("ERROR: Failed to parse frame header for mip %d: %d\n", target_mip_level, ret);
+                    free(au_buffer);
+                    return ret;
+                }
+                
+                // Fill in the actual frame metadata for the caller
+
+                // Return padded dimensions for buffer allocation
+                sel_decode->actual_frame_width = oapv_align_value(ctx->fh.fi.frame_width, OAPV_MB_W);
+                sel_decode->actual_frame_height = oapv_align_value(ctx->fh.fi.frame_height, OAPV_MB_H);
+
+                // Convert tile size from MBs to pixels (16 pixels per MB)
+                sel_decode->actual_tile_width = ctx->fh.tile_width_in_mbs * 16;
+                sel_decode->actual_tile_height = ctx->fh.tile_height_in_mbs * 16;
+                sel_decode->bit_depth = ctx->fh.fi.bit_depth;
+                sel_decode->chroma_format = ctx->fh.fi.chroma_format_idc;
+
+                // Check if this is a metadata-only call (no output buffers provided)
+                if(sel_decode->output_buffers[0] == NULL) {
+                    free(au_buffer);
+                    return OAPV_OK;
+                }
+                break; // Exit the loop - we found our target
+            } else {
+                current_frame++;
+            }
+        }
+        
+        // Move to next PBU using the standard approach: pbu_size + 4 bytes for pbu_size syntax
+        cur_read_size += pbu_size + 4;
+    }
+    
+    if(current_frame != target_mip_level) {
+        printf("ERROR: Could not find mip level %d (only found %d frames)\n", target_mip_level, current_frame);
+        free(au_buffer);
+        return OAPV_ERR_INVALID_ARGUMENT;
+    }
+    
+    // Initialize context using normal decoder path approach
+    // Create a minimal dummy imgb for dec_frm_prepare
+    oapv_imgb_t dummy_imgb;
+    memset(&dummy_imgb, 0, sizeof(dummy_imgb));
+    dummy_imgb.cs = OAPV_CS_SET(OAPV_CF_YCBCR422, 10, 0); // YUV422 10-bit
+    dummy_imgb.refcnt = 1;
+    
+    ret = dec_frm_prepare(ctx, &dummy_imgb);
+    if(OAPV_FAILED(ret)) {
+        printf("ERROR: Failed to prepare frame context: %d\n", ret);
+        free(au_buffer);
+        return ret;
+    }
+    
+    
+    // Calculate configured tile dimensions
+    int tile_w_config = ctx->fh.tile_width_in_mbs * OAPV_MB_W;
+    int tile_h_config = ctx->fh.tile_height_in_mbs * OAPV_MB_H;
+
+    // Calculate target tile coordinates
+    int target_tile_col = sel_decode->tile_coords[0];
+    int target_tile_row = sel_decode->tile_coords[1];
+
+    // Calculate tile layout
+    int frame_width_in_mbs = (ctx->fh.fi.frame_width + OAPV_MB_W - 1) / OAPV_MB_W;
+    int tiles_per_row = (frame_width_in_mbs + ctx->fh.tile_width_in_mbs - 1) / ctx->fh.tile_width_in_mbs;
+    int tile_index = target_tile_row * tiles_per_row + target_tile_col;
+
+    // Calculate ACTUAL tile dimensions for this specific tile (handles edge cases)
+    int tile_x_start = target_tile_col * tile_w_config;
+    int tile_y_start = target_tile_row * tile_h_config;
+    int tile_x_end = (tile_x_start + tile_w_config < ctx->fh.fi.frame_width) ?
+                     tile_x_start + tile_w_config : ctx->fh.fi.frame_width;
+    int tile_y_end = (tile_y_start + tile_h_config < ctx->fh.fi.frame_height) ?
+                     tile_y_start + tile_h_config : ctx->fh.fi.frame_height;
+    int actual_tile_w = tile_x_end - tile_x_start;
+    int actual_tile_h = tile_y_end - tile_y_start;
+
+    
+    // Calculate frame data start position within the target mip level frame
+    // After parsing frame header, bs.cur points to start of frame data (tiles)
+    long frame_data_offset_in_au = bs.cur - (u8*)bitb.addr; // Offset from AU start
+    
+    // Calculate target tile's offset in the frame data
+    long tile_offset = 0;
+    for(int i = 0; i < tile_index; i++) {
+        tile_offset += 4 + ctx->fh.tile_size[i]; // 4-byte size prefix + tile data
+    }
+    
+    // Use tile size from header (no need for 4-byte prefix in tile data)
+    u32 tile_size = ctx->fh.tile_size[tile_index];
+
+    // Calculate absolute file position for target tile
+    // Skip the 4-byte size prefix to point to actual tile data
+    long tile_file_position = au_start_pos + frame_data_offset_in_au + tile_offset + 4;
+    
+    // Free the full AU buffer - we don't need it anymore
+    free(au_buffer);
+    au_buffer = NULL;
+    
+    // Seek to target tile position in file and read only that tile's data
+    fseek(fp, tile_file_position, SEEK_SET);
+    
+    u8 *tile_data = (u8*)malloc(tile_size);
+    if(!tile_data) {
+        return OAPV_ERR_OUT_OF_MEMORY;
+    }
+    
+    size_t bytes_read = fread(tile_data, 1, tile_size, fp);
+    if(bytes_read != tile_size) {
+        printf("ERROR: Failed to read tile data - expected %u bytes, got %zu bytes\n", tile_size, bytes_read);
+        free(tile_data);
+        return OAPV_ERR_MALFORMED_BITSTREAM;
+    }
+    
+    // Initialize bitstream with tile data (no size prefix since we skipped it during read)
+    oapv_bs_t tile_bs;
+    oapv_bsr_init(&tile_bs, tile_data, tile_size, NULL);
+        
+        // Use dec_tile_comp to decode each component directly into output buffers
+        int thread_id = 0;
+        oapvd_core_t *core = ctx->core[thread_id];
+        
+        // Create a proper tile structure and parse tile header
+        oapvd_tile_t tile;
+        memset(&tile, 0, sizeof(tile));
+        
+        // Set up tile geometry (required for dec_tile_comp)
+        // Use relative coordinates since we pass pre-calculated destination addresses
+        tile.x = 0; // relative to destination address
+        tile.y = 0; // relative to destination address
+        tile.w = actual_tile_w; // Use ACTUAL tile width (not configured)
+        tile.h = actual_tile_h; // Use ACTUAL tile height (not configured)
+        
+        // Parse tile header first (required by dec_tile_comp)
+        ret = oapvd_vlc_tile_header(&tile_bs, ctx, &tile.th);
+        if(OAPV_FAILED(ret)) {
+            printf("ERROR: SELECTIVE - Failed to parse tile header: %d\n", ret);
+            free(tile_data);
+            return ret;
+        }
+
+        // Initialize decoder context state like regular decoder
+        for(int c = 0; c < ctx->num_comp; c++) {
+            core->qp[c] = tile.th.tile_qp[c];
+            u8 dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
+            core->dq_shift[c] = ctx->bit_depth - 2 - (core->qp[c] / 6);
+
+            core->kparam_dc[c] = OAPV_KPARAM_DC_MAX;
+            core->kparam_ac[c] = OAPV_KPARAM_AC_MIN;
+            core->prev_dc[c] = 0;
+
+            // Initialize quantization matrix (MISSING in original selective decoder!)
+            int midx = 0;
+            for(int y = 0; y < OAPV_BLK_H; y++) {
+                for(int x = 0; x < OAPV_BLK_W; x++) {
+                    core->q_mat[c][midx++] = dq_scale * ctx->fh.q_matrix[c][y][x]; // 7bit + 8bit
+                }
+            }
+        }
+
+        // Create component-specific bitstream reader like regular decoder
+        u8 *y_start = BSR_GET_CUR(&tile_bs);
+
+        oapv_bs_t y_bs;
+        oapv_bsr_init(&y_bs, y_start, tile.th.tile_data_size[0], NULL);
+        
+        // Calculate destination address for Y component (account for tile position)
+        int tile_x_pixels = tile_x_start; // Use calculated actual position
+        int tile_y_pixels = tile_y_start; // Use calculated actual position
+        int y_stride_bytes = sel_decode->output_buffers[0]->s[0]; // stride is in bytes
+        u8 *y_base_bytes = (u8*)sel_decode->output_buffers[0]->a[0];
+        u8 *y_dst_bytes = y_base_bytes + (tile_y_pixels * y_stride_bytes) + (tile_x_pixels * 2);
+        u16 *y_dst = (u16*)y_dst_bytes;
+        
+        
+        ret = dec_tile_comp(&tile, ctx, core, &y_bs, 0, 
+                           sel_decode->output_buffers[0]->s[0], 
+                           y_dst);
+        if(OAPV_FAILED(ret)) {
+            printf("ERROR: Failed to decode Y component: %d\n", ret);
+        }
+        
+        // Now decode U and V components
+        if(OAPV_SUCCEEDED(ret)) {
+            u8 *u_start = y_start + tile.th.tile_data_size[0];
+            oapv_bs_t u_bs;
+            oapv_bsr_init(&u_bs, u_start, tile.th.tile_data_size[1], NULL);
+
+            // Calculate destination address for U component (4:2:2 - half width)
+            int u_tile_x_pixels = tile_x_pixels / 2; // U is half width due to 4:2:2 chroma subsampling
+            int u_stride_bytes = sel_decode->output_buffers[1]->s[0]; // stride in bytes
+            u8 *u_base_bytes = (u8*)sel_decode->output_buffers[1]->a[0];
+            u8 *u_dst_bytes = u_base_bytes + (tile_y_pixels * u_stride_bytes) + (u_tile_x_pixels * 2);
+            u16 *u_dst = (u16*)u_dst_bytes;
+
+            ret = dec_tile_comp(&tile, ctx, core, &u_bs, 1,
+                               sel_decode->output_buffers[1]->s[0],
+                               u_dst);
+            if(OAPV_FAILED(ret)) {
+                printf("ERROR: Failed to decode U component: %d\n", ret);
+            }
+        }
+        
+        if(OAPV_SUCCEEDED(ret)) {
+            u8 *v_start = y_start + tile.th.tile_data_size[0] + tile.th.tile_data_size[1];
+            oapv_bs_t v_bs;
+            oapv_bsr_init(&v_bs, v_start, tile.th.tile_data_size[2], NULL);
+
+            // Calculate destination address for V component (4:2:2 - half width)
+            int v_tile_x_pixels = tile_x_pixels / 2; // V is half width due to 4:2:2 chroma subsampling
+            int v_stride_bytes = sel_decode->output_buffers[2]->s[0]; // stride in bytes
+            u8 *v_base_bytes = (u8*)sel_decode->output_buffers[2]->a[0];
+            u8 *v_dst_bytes = v_base_bytes + (tile_y_pixels * v_stride_bytes) + (v_tile_x_pixels * 2);
+            u16 *v_dst = (u16*)v_dst_bytes;
+
+            ret = dec_tile_comp(&tile, ctx, core, &v_bs, 2,
+                               sel_decode->output_buffers[2]->s[0],
+                               v_dst);
+            if(OAPV_FAILED(ret)) {
+                printf("ERROR: Failed to decode V component: %d\n", ret);
+            }
+        }
+    
+    free(tile_data);
+    return ret;
+}
+
+// Data structures for multi-tile decoding
+typedef struct {
+    int tile_idx;           // Tile index in frame
+    int col, row;           // Tile coordinates  
+    u32 size;               // Tile data size
+    u64 file_offset;        // Position in file
+    u8 *data;               // Pointer to tile data
+    volatile int status;    // 0=NOT_DECODED, 1=ON_DECODING, 2=DECODED
+    oapvd_core_t *core;     // Assigned decoder core
+} tile_work_t;
+
+typedef struct {
+    u64 start_offset;       // Start position in file
+    u64 end_offset;         // End position  
+    u32 total_size;         // Total bytes to read
+    int first_tile_idx;     // First tile in this block
+    int num_tiles;          // Number of tiles in block
+    u8 *buffer;             // Allocated memory for block
+} tile_read_block_t;
+
+// Performance metrics structure
+typedef struct {
+    u64 io_start_ns;
+    u64 io_end_ns;
+    u64 decode_start_ns;
+    u64 decode_end_ns;
+    u32 bytes_read;
+    u32 tiles_decoded;
+} perf_metrics_t;
+
+// Worker thread argument structure
+typedef struct {
+    oapvd_ctx_t *ctx;
+    oapvd_core_t *core;
+    tile_work_t *work_queue;
+    int num_tiles;
+    oapv_selective_decode_t *sel_decode;
+    oapv_sync_obj_t sync_obj;
+    volatile int *tiles_completed;
+    perf_metrics_t *metrics;
+} multi_tile_worker_t;
+
+// Helper function to get current time in nanoseconds
+static u64 get_time_ns() {
+#ifdef _WIN32
+    LARGE_INTEGER freq, counter;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+    return (u64)((counter.QuadPart * 1000000000LL) / freq.QuadPart);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (u64)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+#endif
+}
+
+// Worker thread function for multi-tile decoding
+static int dec_thread_tile_selective(void *arg)
+{
+    multi_tile_worker_t *worker = (multi_tile_worker_t*)arg;
+    oapvd_ctx_t *ctx = worker->ctx;
+    oapvd_core_t *core = worker->core;
+    tile_work_t *work_queue = worker->work_queue;
+    int num_tiles = worker->num_tiles;
+    oapv_selective_decode_t *sel_decode = worker->sel_decode;
+    
+    while(1) {
+        int tile_to_process = -1;
+        
+        // Find next tile to decode
+        oapv_tpool_enter_cs(worker->sync_obj);
+        for(int i = 0; i < num_tiles; i++) {
+            if(work_queue[i].status == 0) { // NOT_DECODED
+                work_queue[i].status = 1; // ON_DECODING
+                tile_to_process = i;
+                break;
+            }
+        }
+        oapv_tpool_leave_cs(worker->sync_obj);
+        
+        if(tile_to_process == -1) {
+            break; // No more work
+        }
+        
+        tile_work_t *work = &work_queue[tile_to_process];
+
+        // Decode the tile
+        oapv_bs_t tile_bs;
+        oapv_bsr_init(&tile_bs, work->data, work->size, NULL);
+
+        // Parse tile header
+        oapvd_tile_t tile;
+        memset(&tile, 0, sizeof(tile));
+        tile.x = 0; // Relative to destination
+        tile.y = 0;
+
+        // Calculate ACTUAL tile dimensions for this specific tile (handles edge cases)
+        int tile_w_config = sel_decode->actual_tile_width;
+        int tile_h_config = sel_decode->actual_tile_height;
+        int frame_width = sel_decode->actual_frame_width;
+        int frame_height = sel_decode->actual_frame_height;
+
+        int tile_x_start = work->col * tile_w_config;
+        int tile_y_start = work->row * tile_h_config;
+        int tile_x_end = (tile_x_start + tile_w_config < frame_width) ?
+                         tile_x_start + tile_w_config : frame_width;
+        int tile_y_end = (tile_y_start + tile_h_config < frame_height) ?
+                         tile_y_start + tile_h_config : frame_height;
+
+        tile.w = tile_x_end - tile_x_start;
+        tile.h = tile_y_end - tile_y_start;
+        
+        int ret = oapvd_vlc_tile_header(&tile_bs, ctx, &tile.th);
+        if(OAPV_FAILED(ret)) {
+            work->status = 3; // ERROR
+            continue;
+        }
+        
+        // Initialize decoder state for this tile
+        for(int c = 0; c < ctx->num_comp; c++) {
+            core->qp[c] = tile.th.tile_qp[c];
+            u8 dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
+            core->dq_shift[c] = ctx->bit_depth - 2 - (core->qp[c] / 6);
+            
+            core->kparam_dc[c] = OAPV_KPARAM_DC_MAX;
+            core->kparam_ac[c] = OAPV_KPARAM_AC_MIN;
+            core->prev_dc[c] = 0;
+            
+            // Initialize quantization matrix
+            int midx = 0;
+            for(int y = 0; y < OAPV_BLK_H; y++) {
+                for(int x = 0; x < OAPV_BLK_W; x++) {
+                    core->q_mat[c][midx++] = dq_scale * ctx->fh.q_matrix[c][y][x];
+                }
+            }
+        }
+        
+        // Calculate destination position in output buffers (use configured dimensions for positioning)
+        int tile_x_pos = work->col * tile_w_config;
+        int tile_y_pos = work->row * tile_h_config;
+        
+        // Decode each component directly into output buffer
+        for(int c = 0; c < ctx->num_comp; c++) {
+            oapv_imgb_t *output_buf = sel_decode->output_buffers[c];
+            if(!output_buf) continue;
+            
+            // Calculate component destination address using byte-based arithmetic
+            int comp_stride_bytes = output_buf->s[0]; // Stride in bytes for this component
+            u8 *comp_base_bytes = (u8*)output_buf->a[0];
+            
+            // Adjust tile position for chroma subsampling (422 format has half width for chroma)
+            int comp_tile_x_pixels = (c > 0 && ctx->cfi == 2) ? tile_x_pos / 2 : tile_x_pos;
+            int comp_tile_y_pixels = tile_y_pos;
+            int comp_tile_w = (c > 0 && ctx->cfi == 2) ? tile.w / 2 : tile.w;
+            int comp_tile_h = tile.h;
+            
+            // Calculate final destination address
+            u8 *tile_dst_bytes = comp_base_bytes + (comp_tile_y_pixels * comp_stride_bytes) + (comp_tile_x_pixels * 2);
+            u16 *tile_dst = (u16*)tile_dst_bytes;
+            
+            // Create temporary tile structure for dec_tile_comp
+            // Use original tile dimensions; dec_tile_comp handles chroma subsampling based on component number
+            oapvd_tile_t tile_for_comp;
+            memset(&tile_for_comp, 0, sizeof(tile_for_comp));
+            tile_for_comp.th = tile.th;
+            tile_for_comp.x = 0;
+            tile_for_comp.y = 0;
+            tile_for_comp.w = tile.w;  // Use original tile width, not adjusted
+            tile_for_comp.h = tile.h;  // Use original tile height, not adjusted
+            
+            // Create component bitstream
+            oapv_bs_t comp_bs;
+            long comp_data_offset = 0;
+            for(int prev_c = 0; prev_c < c; prev_c++) {
+                comp_data_offset += tile.th.tile_data_size[prev_c];
+            }
+            
+            oapv_bsr_init(&comp_bs, work->data + (tile_bs.cur - tile_bs.beg) + comp_data_offset, 
+                         tile.th.tile_data_size[c], NULL);
+            
+            // Decode the component (stride passed in bytes)
+            ret = dec_tile_comp(&tile_for_comp, ctx, core, &comp_bs, c, comp_stride_bytes, tile_dst);
+            if(OAPV_FAILED(ret)) {
+                work->status = 3; // ERROR
+                break;
+            }
+        }
+        
+        if(ret == OAPV_OK) {
+            work->status = 2; // DECODED
+            
+            // Update completion counter
+            oapv_tpool_enter_cs(worker->sync_obj);
+            (*worker->tiles_completed)++;
+            oapv_tpool_leave_cs(worker->sync_obj);
+        }
+    }
+    
+    return OAPV_OK;
+}
+
+// New multi-tile selective decoder implementation
+int oapvd_decode_selective_multi(oapvd_t did, FILE *fp, oapv_selective_decode_t *sel_decode, 
+                                oapvm_t mid, oapvd_stat_t *stat)
+{
+    oapvd_ctx_t *ctx;
+    int ret = OAPV_OK;
+    perf_metrics_t metrics = {0};
+    
+    ctx = dec_id_to_ctx(did);
+    oapv_assert_rv(ctx, OAPV_ERR_INVALID_ARGUMENT);
+    
+    // Start I/O timing
+    metrics.io_start_ns = get_time_ns();
+    
+    // Get target mip level
+    int target_mip_level = sel_decode->mip_level;
+    int num_tiles_to_decode = sel_decode->num_tiles;
+    
+    
+    // Read and parse frame header to get tile information
+    fseek(fp, 0, SEEK_SET);
+    
+    // Read AU size
+    u8 size_buf[4];
+    fread(size_buf, 4, 1, fp);
+    u32 au_size = (size_buf[0] << 24) | (size_buf[1] << 16) | (size_buf[2] << 8) | size_buf[3];
+    stat->read += 4;
+    
+    long au_start_pos = ftell(fp);
+    
+    // Read entire AU to parse headers
+    u8 *au_buffer = (u8*)malloc(au_size);
+    if(!au_buffer) {
+        return OAPV_ERR_OUT_OF_MEMORY;
+    }
+    fread(au_buffer, au_size, 1, fp);
+    metrics.bytes_read += au_size;
+    
+    // Parse bitstream
+    oapv_bitb_t bitb;
+    bitb.addr = au_buffer;
+    bitb.ssize = au_size;
+    
+    // Check signature
+    u32 signature = oapv_bsr_read_direct(bitb.addr, 32);
+    if(signature != 0x61507631) {
+        free(au_buffer);
+        return OAPV_ERR_MALFORMED_BITSTREAM;
+    }
+    
+    // Navigate through PBUs to find target mip level
+    int current_frame = 0;
+    u32 cur_read_size = 4;
+    oapv_bs_t bs;
+    
+    while(cur_read_size < bitb.ssize && current_frame <= target_mip_level) {
+        u32 remain = bitb.ssize - cur_read_size;
+        if(remain < 8) {
+            free(au_buffer);
+            return OAPV_ERR_MALFORMED_BITSTREAM;
+        }
+        
+        oapv_bsr_init(&bs, (u8*)bitb.addr + cur_read_size, remain, NULL);
+        
+        u32 pbu_size;
+        ret = oapvd_vlc_pbu_size(&bs, &pbu_size);
+        if(OAPV_FAILED(ret)) {
+            free(au_buffer);
+            return ret;
+        }
+        
+        remain -= 4;
+        if(pbu_size > remain) {
+            free(au_buffer);
+            return OAPV_ERR_MALFORMED_BITSTREAM;
+        }
+        
+        oapv_pbuh_t pbuh;
+        ret = oapvd_vlc_pbu_header(&bs, &pbuh);
+        if(OAPV_FAILED(ret)) {
+            free(au_buffer);
+            return ret;
+        }
+        
+        if(pbuh.pbu_type == OAPV_PBU_TYPE_PRIMARY_FRAME || 
+           pbuh.pbu_type == OAPV_PBU_TYPE_NON_PRIMARY_FRAME) {
+            
+            if(current_frame == target_mip_level) {
+                // Found target frame
+                ret = oapvd_vlc_frame_header(&bs, &ctx->fh);
+                if(OAPV_FAILED(ret)) {
+                    free(au_buffer);
+                    return ret;
+                }
+                
+                // Fill in frame metadata
+
+                // Return padded dimensions for buffer allocation
+                sel_decode->actual_frame_width = oapv_align_value(ctx->fh.fi.frame_width, OAPV_MB_W);
+                sel_decode->actual_frame_height = oapv_align_value(ctx->fh.fi.frame_height, OAPV_MB_H);
+
+                sel_decode->actual_tile_width = ctx->fh.tile_width_in_mbs * 16;
+                sel_decode->actual_tile_height = ctx->fh.tile_height_in_mbs * 16;
+                sel_decode->bit_depth = ctx->fh.fi.bit_depth;
+                sel_decode->chroma_format = ctx->fh.fi.chroma_format_idc;
+                
+                // Check if metadata-only call
+                if(sel_decode->output_buffers[0] == NULL) {
+                    free(au_buffer);
+                    return OAPV_OK;
+                }
+                break;
+            } else {
+                current_frame++;
+            }
+        }
+        
+        cur_read_size += pbu_size + 4;
+    }
+    
+    if(current_frame != target_mip_level) {
+        free(au_buffer);
+        return OAPV_ERR_INVALID_ARGUMENT;
+    }
+    
+    // Initialize context
+    oapv_imgb_t dummy_imgb;
+    memset(&dummy_imgb, 0, sizeof(dummy_imgb));
+    dummy_imgb.cs = OAPV_CS_SET(OAPV_CF_YCBCR422, 10, 0);
+    dummy_imgb.refcnt = 1;
+
+    // Initialize ctx->bs for dec_frm_prepare
+    oapv_bsr_init(&ctx->bs, bs.cur, bs.end - bs.cur, NULL);
+
+    ret = dec_frm_prepare(ctx, &dummy_imgb);
+    if(OAPV_FAILED(ret)) {
+        free(au_buffer);
+        return ret;
+    }
+    
+    // Calculate tile layout
+    int frame_width_in_mbs = (ctx->fh.fi.frame_width + OAPV_MB_W - 1) / OAPV_MB_W;
+    int tiles_per_row = (frame_width_in_mbs + ctx->fh.tile_width_in_mbs - 1) / ctx->fh.tile_width_in_mbs;
+    
+    // Allocate work queue for tiles
+    tile_work_t *work_queue = (tile_work_t*)calloc(num_tiles_to_decode, sizeof(tile_work_t));
+    if(!work_queue) {
+        free(au_buffer);
+        return OAPV_ERR_OUT_OF_MEMORY;
+    }
+    
+    // Calculate frame data offset
+    long frame_data_offset_in_au = bs.cur - (u8*)bitb.addr;
+    
+    // Fill work queue with tile information
+    for(int i = 0; i < num_tiles_to_decode; i++) {
+        int col = sel_decode->tile_coords[i * 2];
+        int row = sel_decode->tile_coords[i * 2 + 1];
+        int tile_idx = row * tiles_per_row + col;
+        
+        work_queue[i].tile_idx = tile_idx;
+        work_queue[i].col = col;
+        work_queue[i].row = row;
+        work_queue[i].size = ctx->fh.tile_size[tile_idx];
+        work_queue[i].status = 0; // NOT_DECODED
+        
+        // Calculate file offset for this tile
+        long tile_offset = 0;
+        for(int j = 0; j < tile_idx; j++) {
+            tile_offset += 4 + ctx->fh.tile_size[j];
+        }
+        work_queue[i].file_offset = au_start_pos + frame_data_offset_in_au + tile_offset + 4;
+    }
+    
+    // Sort tiles by file offset for efficient reading
+    for(int i = 0; i < num_tiles_to_decode - 1; i++) {
+        for(int j = i + 1; j < num_tiles_to_decode; j++) {
+            if(work_queue[j].file_offset < work_queue[i].file_offset) {
+                tile_work_t temp = work_queue[i];
+                work_queue[i] = work_queue[j];
+                work_queue[j] = temp;
+            }
+        }
+    }
+    
+    // Coalesce contiguous tiles into read blocks
+    const u64 COALESCE_THRESHOLD = 4096; // 4KB gap threshold
+    tile_read_block_t *read_blocks = (tile_read_block_t*)calloc(num_tiles_to_decode, sizeof(tile_read_block_t));
+    int num_blocks = 0;
+    
+    // Initialize first block
+    read_blocks[0].start_offset = work_queue[0].file_offset;
+    read_blocks[0].end_offset = work_queue[0].file_offset + work_queue[0].size;
+    read_blocks[0].first_tile_idx = 0;
+    read_blocks[0].num_tiles = 1;
+    num_blocks = 1;
+    
+    // Group tiles into blocks
+    for(int i = 1; i < num_tiles_to_decode; i++) {
+        u64 gap = work_queue[i].file_offset - read_blocks[num_blocks-1].end_offset;
+        
+        if(gap <= COALESCE_THRESHOLD) {
+            // Add to current block
+            read_blocks[num_blocks-1].end_offset = work_queue[i].file_offset + work_queue[i].size;
+            read_blocks[num_blocks-1].num_tiles++;
+        } else {
+            // Start new block
+            read_blocks[num_blocks].start_offset = work_queue[i].file_offset;
+            read_blocks[num_blocks].end_offset = work_queue[i].file_offset + work_queue[i].size;
+            read_blocks[num_blocks].first_tile_idx = i;
+            read_blocks[num_blocks].num_tiles = 1;
+            num_blocks++;
+        }
+    }
+    
+    // Calculate total sizes and allocate buffers
+    for(int b = 0; b < num_blocks; b++) {
+        read_blocks[b].total_size = (u32)(read_blocks[b].end_offset - read_blocks[b].start_offset);
+        read_blocks[b].buffer = (u8*)malloc(read_blocks[b].total_size);
+        if(!read_blocks[b].buffer) {
+            // Clean up
+            for(int j = 0; j < b; j++) {
+                free(read_blocks[j].buffer);
+            }
+            free(read_blocks);
+            free(work_queue);
+            free(au_buffer);
+            return OAPV_ERR_OUT_OF_MEMORY;
+        }
+    }
+    
+    
+    // Perform coalesced reads
+    for(int b = 0; b < num_blocks; b++) {
+        fseek(fp, read_blocks[b].start_offset, SEEK_SET);
+        fread(read_blocks[b].buffer, read_blocks[b].total_size, 1, fp);
+        metrics.bytes_read += read_blocks[b].total_size;
+        
+        // Assign data pointers to tiles in this block
+        for(int t = 0; t < read_blocks[b].num_tiles; t++) {
+            int tile_idx = read_blocks[b].first_tile_idx + t;
+            u64 tile_offset_in_block = work_queue[tile_idx].file_offset - read_blocks[b].start_offset;
+            work_queue[tile_idx].data = read_blocks[b].buffer + tile_offset_in_block;
+        }
+    }
+    
+    free(au_buffer); // No longer needed
+    metrics.io_end_ns = get_time_ns();
+    
+    // Start decode timing
+    metrics.decode_start_ns = get_time_ns();
+    
+    // Determine number of threads to use
+    int num_threads = ctx->cdesc.threads;
+    if(num_threads <= 0) num_threads = 1;
+    if(num_threads > num_tiles_to_decode) num_threads = num_tiles_to_decode;
+    
+    
+    // Create sync object for thread coordination
+    oapv_sync_obj_t sync_obj = oapv_tpool_sync_obj_create();
+    volatile int tiles_completed = 0;
+    
+    // Set up worker arguments
+    multi_tile_worker_t worker;
+    worker.ctx = ctx;
+    worker.core = ctx->core[0]; // Main thread uses core 0
+    worker.work_queue = work_queue;
+    worker.num_tiles = num_tiles_to_decode;
+    worker.sel_decode = sel_decode;
+    worker.sync_obj = sync_obj;
+    worker.tiles_completed = &tiles_completed;
+    worker.metrics = &metrics;
+    
+    if(num_threads > 1) {
+        // Initialize thread pool if not already done
+        oapv_tpool_t *tpool = ctx->tpool;
+        
+        // Create and run worker threads
+        for(int t = 0; t < num_threads - 1; t++) {
+            multi_tile_worker_t *thread_worker = (multi_tile_worker_t*)malloc(sizeof(multi_tile_worker_t));
+            *thread_worker = worker;
+            thread_worker->core = ctx->core[t + 1];
+            
+            tpool->run(ctx->thread_id[t], dec_thread_tile_selective, thread_worker);
+        }
+        
+        // Main thread also works
+        dec_thread_tile_selective(&worker);
+        
+        // Wait for all threads to complete
+        for(int t = 0; t < num_threads - 1; t++) {
+            int thread_ret;
+            tpool->join(ctx->thread_id[t], &thread_ret);
+        }
+    } else {
+        // Single-threaded decode
+        dec_thread_tile_selective(&worker);
+    }
+    
+    metrics.decode_end_ns = get_time_ns();
+    metrics.tiles_decoded = tiles_completed;
+    
+    // Clean up
+    oapv_tpool_sync_obj_delete(&sync_obj);
+    
+    for(int b = 0; b < num_blocks; b++) {
+        free(read_blocks[b].buffer);
+    }
+    free(read_blocks);
+    free(work_queue);
+    
+    // Report performance metrics
+    double io_time_ms = (metrics.io_end_ns - metrics.io_start_ns) / 1000000.0;
+    double decode_time_ms = (metrics.decode_end_ns - metrics.decode_start_ns) / 1000000.0;
+    double total_time_ms = io_time_ms + decode_time_ms;
+    
+    printf("\nPerformance Metrics:\n");
+    printf("  I/O time: %.2f ms\n", io_time_ms);
+    printf("  Decode time: %.2f ms\n", decode_time_ms);
+    printf("  Total time: %.2f ms\n", total_time_ms);
+    printf("  Bytes read: %u\n", metrics.bytes_read);
+    printf("  Tiles decoded: %u\n", metrics.tiles_decoded);
+    printf("  Throughput: %.2f tiles/sec\n", metrics.tiles_decoded * 1000.0 / total_time_ms);
+    
+    return ret;
+}
+
 #endif // ENABLE_DECODER
 ///////////////////////////////////////////////////////////////////////////////
 
