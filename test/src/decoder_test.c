@@ -50,16 +50,6 @@ static test_config_t test_configs[] = {
         .measure_performance = 0,
         .validation_level = VALIDATE_FULL
     },
-    { .name = "single_tile_mip4_origin",
-      .description = "Single tile at origin (0,0) from mip level 4",
-      .test_type = TEST_SINGLE_TILE,
-      .mip_level = 4,
-      .tile_coords = { 0, 0, -1, -1 }, // Sentinel terminated
-      .thread_counts = { 1, 0 },       // Single thread, terminated by 0
-      .output_format = OUTPUT_RAW,
-      .measure_performance = 0,
-      .validation_level = VALIDATE_FULL 
-    },
     // Multi-tile performance tests (from test_multi_tile_performance.c patterns)
     {
         .name = "multi_2x2_contiguous",
@@ -95,7 +85,7 @@ static test_config_t test_configs[] = {
                        4,5, 5,5, 6,5, 7,5, 8,5, 9,5,  // Row 5
                        -1,-1},
         .thread_counts = {4, 8, 16, 24, 0},
-        .output_format = OUTPUT_RAW,
+        .output_format = OUTPUT_Y4M,
         .measure_performance = 1,
         .validation_level = VALIDATE_FULL
     },
@@ -145,10 +135,10 @@ static test_config_t test_configs[] = {
     },
     {
         .name = "multi_full_frame_validation",
-        .description = "First 120 tiles with detailed metrics",
+        .description = "Full frame (255 tiles) with detailed metrics",
         .test_type = TEST_MULTI_TILE,
         .mip_level = 0,
-        .tile_coords = {// First 120 tiles (15x8 grid) - avoiding problematic row 8
+        .tile_coords = {
                        0,0, 1,0, 2,0, 3,0, 4,0, 5,0, 6,0, 7,0, 8,0, 9,0, 10,0, 11,0, 12,0, 13,0, 14,0,  // Row 0
                        0,1, 1,1, 2,1, 3,1, 4,1, 5,1, 6,1, 7,1, 8,1, 9,1, 10,1, 11,1, 12,1, 13,1, 14,1,  // Row 1
                        0,2, 1,2, 2,2, 3,2, 4,2, 5,2, 6,2, 7,2, 8,2, 9,2, 10,2, 11,2, 12,2, 13,2, 14,2,  // Row 2
@@ -157,12 +147,236 @@ static test_config_t test_configs[] = {
                        0,5, 1,5, 2,5, 3,5, 4,5, 5,5, 6,5, 7,5, 8,5, 9,5, 10,5, 11,5, 12,5, 13,5, 14,5,  // Row 5
                        0,6, 1,6, 2,6, 3,6, 4,6, 5,6, 6,6, 7,6, 8,6, 9,6, 10,6, 11,6, 12,6, 13,6, 14,6,  // Row 6
                        0,7, 1,7, 2,7, 3,7, 4,7, 5,7, 6,7, 7,7, 8,7, 9,7, 10,7, 11,7, 12,7, 13,7, 14,7,  // Row 7
+                       0,8, 1,8, 2,8, 3,8, 4,8, 5,8, 6,8, 7,8, 8,8, 9,8, 10,8, 11,8, 12,8, 13,8, 14,8,  // Row 8
                        -1,-1},
         .thread_counts = {1, 4, 8, 16, 24, 32, 0},
-        .output_format = OUTPUT_RAW,
+        .output_format = OUTPUT_Y4M,
         .measure_performance = 1,
         .validation_level = VALIDATE_QUICK
-    }
+    },
+    {
+        .name = "multi_all_mip0",
+        .description = "All tiles from mip level 0 (full resolution)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 0,
+        .tile_coords = {
+                       // 15x9 grid = 135 tiles for 3840x2160 with 256x256 tiles
+                       0,0, 1,0, 2,0, 3,0, 4,0, 5,0, 6,0, 7,0, 8,0, 9,0, 10,0, 11,0, 12,0, 13,0, 14,0,  // Row 0
+                       0,1, 1,1, 2,1, 3,1, 4,1, 5,1, 6,1, 7,1, 8,1, 9,1, 10,1, 11,1, 12,1, 13,1, 14,1,  // Row 1
+                       0,2, 1,2, 2,2, 3,2, 4,2, 5,2, 6,2, 7,2, 8,2, 9,2, 10,2, 11,2, 12,2, 13,2, 14,2,  // Row 2
+                       0,3, 1,3, 2,3, 3,3, 4,3, 5,3, 6,3, 7,3, 8,3, 9,3, 10,3, 11,3, 12,3, 13,3, 14,3,  // Row 3
+                       0,4, 1,4, 2,4, 3,4, 4,4, 5,4, 6,4, 7,4, 8,4, 9,4, 10,4, 11,4, 12,4, 13,4, 14,4,  // Row 4
+                       0,5, 1,5, 2,5, 3,5, 4,5, 5,5, 6,5, 7,5, 8,5, 9,5, 10,5, 11,5, 12,5, 13,5, 14,5,  // Row 5
+                       0,6, 1,6, 2,6, 3,6, 4,6, 5,6, 6,6, 7,6, 8,6, 9,6, 10,6, 11,6, 12,6, 13,6, 14,6,  // Row 6
+                       0,7, 1,7, 2,7, 3,7, 4,7, 5,7, 6,7, 7,7, 8,7, 9,7, 10,7, 11,7, 12,7, 13,7, 14,7,  // Row 7
+                       0,8, 1,8, 2,8, 3,8, 4,8, 5,8, 6,8, 7,8, 8,8, 9,8, 10,8, 11,8, 12,8, 13,8, 14,8,  // Row 8
+                       -1,-1},
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_all_mip1",
+        .description = "All tiles from mip level 1 (half resolution)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 1,
+        .tile_coords = {
+                       // 8x5 grid = 40 tiles for 1920x1080 with 256x256 tiles (last column is 128px, last row is 56px)
+                       0,0, 1,0, 2,0, 3,0, 4,0, 5,0, 6,0, 7,0,  // Row 0 (256px tall)
+                       0,1, 1,1, 2,1, 3,1, 4,1, 5,1, 6,1, 7,1,  // Row 1 (256px tall)
+                       0,2, 1,2, 2,2, 3,2, 4,2, 5,2, 6,2, 7,2,  // Row 2 (256px tall)
+                       0,3, 1,3, 2,3, 3,3, 4,3, 5,3, 6,3, 7,3,  // Row 3 (256px tall)
+                       0,4, 1,4, 2,4, 3,4, 4,4, 5,4, 6,4, 7,4,  // Row 4 (56px tall)
+                       -1,-1},
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_some_mip1",
+        .description = "Some tiles from mip level 1 (half resolution)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 1,
+        .tile_coords = {
+                       // 8x5 grid = 40 tiles for 1920x1080 with 256x256 tiles (last column is 128px, last row is 56px)
+                       0,4,  // Right:128. Bottom:56
+                       -1,-1},
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_all_mip2",
+        .description = "All tiles from mip level 2 (quarter resolution 960x540)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 2,
+        .tile_coords = {
+                       // 4x3 grid = 12 tiles for 960x540 with 256x256 tiles
+                       0,0, 1,0, 2,0, 3,0,  // Row 0
+                       0,1, 1,1, 2,1, 3,1,  // Row 1
+                       0,2, 1,2, 2,2, 3,2,  // Row 2
+                       -1,-1},
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_some_mip2",
+        .description = "Some tiles from mip level 2 (quarter resolution 960x540)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 2,
+        .tile_coords = {
+                       // 4x3 grid = 12 tiles for 960x540 with 256x256 tiles
+                       0,2,  // Right:192. Bottom:28
+                       -1,-1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_all_mip3",
+        .description = "All tiles from mip level 3 (480x270)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 3,
+        .tile_coords = {
+                       // 2x2 grid = 4 tiles for 480x270 with 256x256 tiles
+                       0,0, 1,0,  // Row 0
+                       0,1, 1,1,  // Row 1
+                       -1,-1},
+        .thread_counts = {4, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_all_mip4",
+        .description = "Single tile from mip level 4 (240x135)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 4,
+        .tile_coords = {
+                       0,0,  // Single tile covers entire frame
+                       -1,-1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_all_mip5",
+        .description = "Single tile from mip level 4 (240x135)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 5,
+        .tile_coords = {
+                       0,0,  // Single tile covers entire frame
+                       -1,-1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_all_mip6",
+        .description = "Single tile from mip level 4 (240x135)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 6,
+        .tile_coords = {
+                       0,0,  // Single tile covers entire frame
+                       -1,-1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_all_mip7",
+        .description = "Single tile from mip level 4 (240x135)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 7,
+        .tile_coords = {
+                       0,0,  // Single tile covers entire frame
+                       -1,-1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_mip1_single",
+        .description = "Single tile from mip level 1 (debug test)",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 1,
+        .tile_coords = {
+                       0,0,  // Just tile (0,0)
+                       -1,-1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "multi_mip1_first_row",
+        .description = "First row of tiles from mip level 1",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 1,
+        .tile_coords = {
+                       0,0, 1,0, 2,0, 3,0, 4,0, 5,0, 6,0, 7,0,  // Row 0 only
+                       -1,-1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    // Individual single-tile tests for all 40 tiles in mip level 1 (8x5 grid)
+    // Row 0 (y=0)
+    {"single_mip1_tile_0_0", "Single tile (0,0) from mip level 1", TEST_SINGLE_TILE, 1, {0,0, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_1_0", "Single tile (1,0) from mip level 1", TEST_SINGLE_TILE, 1, {1,0, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_2_0", "Single tile (2,0) from mip level 1", TEST_SINGLE_TILE, 1, {2,0, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_3_0", "Single tile (3,0) from mip level 1", TEST_SINGLE_TILE, 1, {3,0, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_4_0", "Single tile (4,0) from mip level 1", TEST_SINGLE_TILE, 1, {4,0, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_5_0", "Single tile (5,0) from mip level 1", TEST_SINGLE_TILE, 1, {5,0, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_6_0", "Single tile (6,0) from mip level 1", TEST_SINGLE_TILE, 1, {6,0, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_7_0", "Single tile (7,0) from mip level 1", TEST_SINGLE_TILE, 1, {7,0, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    // Row 1 (y=1)
+    {"single_mip1_tile_0_1", "Single tile (0,1) from mip level 1", TEST_SINGLE_TILE, 1, {0,1, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_1_1", "Single tile (1,1) from mip level 1", TEST_SINGLE_TILE, 1, {1,1, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_2_1", "Single tile (2,1) from mip level 1", TEST_SINGLE_TILE, 1, {2,1, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_3_1", "Single tile (3,1) from mip level 1", TEST_SINGLE_TILE, 1, {3,1, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_4_1", "Single tile (4,1) from mip level 1", TEST_SINGLE_TILE, 1, {4,1, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_5_1", "Single tile (5,1) from mip level 1", TEST_SINGLE_TILE, 1, {5,1, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_6_1", "Single tile (6,1) from mip level 1", TEST_SINGLE_TILE, 1, {6,1, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_7_1", "Single tile (7,1) from mip level 1", TEST_SINGLE_TILE, 1, {7,1, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    // Row 2 (y=2)
+    {"single_mip1_tile_0_2", "Single tile (0,2) from mip level 1", TEST_SINGLE_TILE, 1, {0,2, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_1_2", "Single tile (1,2) from mip level 1", TEST_SINGLE_TILE, 1, {1,2, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_2_2", "Single tile (2,2) from mip level 1", TEST_SINGLE_TILE, 1, {2,2, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_3_2", "Single tile (3,2) from mip level 1", TEST_SINGLE_TILE, 1, {3,2, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_4_2", "Single tile (4,2) from mip level 1", TEST_SINGLE_TILE, 1, {4,2, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_5_2", "Single tile (5,2) from mip level 1", TEST_SINGLE_TILE, 1, {5,2, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_6_2", "Single tile (6,2) from mip level 1", TEST_SINGLE_TILE, 1, {6,2, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_7_2", "Single tile (7,2) from mip level 1", TEST_SINGLE_TILE, 1, {7,2, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    // Row 3 (y=3)
+    {"single_mip1_tile_0_3", "Single tile (0,3) from mip level 1", TEST_SINGLE_TILE, 1, {0,3, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_1_3", "Single tile (1,3) from mip level 1", TEST_SINGLE_TILE, 1, {1,3, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_2_3", "Single tile (2,3) from mip level 1", TEST_SINGLE_TILE, 1, {2,3, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_3_3", "Single tile (3,3) from mip level 1", TEST_SINGLE_TILE, 1, {3,3, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_4_3", "Single tile (4,3) from mip level 1", TEST_SINGLE_TILE, 1, {4,3, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_5_3", "Single tile (5,3) from mip level 1", TEST_SINGLE_TILE, 1, {5,3, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_6_3", "Single tile (6,3) from mip level 1", TEST_SINGLE_TILE, 1, {6,3, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_7_3", "Single tile (7,3) from mip level 1", TEST_SINGLE_TILE, 1, {7,3, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    // Row 4 (y=4) - last row with 56px height
+    {"single_mip1_tile_0_4", "Single tile (0,4) from mip level 1", TEST_SINGLE_TILE, 1, {0,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_1_4", "Single tile (1,4) from mip level 1", TEST_SINGLE_TILE, 1, {1,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_2_4", "Single tile (2,4) from mip level 1", TEST_SINGLE_TILE, 1, {2,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_3_4", "Single tile (3,4) from mip level 1", TEST_SINGLE_TILE, 1, {3,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_4_4", "Single tile (4,4) from mip level 1", TEST_SINGLE_TILE, 1, {4,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_5_4", "Single tile (5,4) from mip level 1", TEST_SINGLE_TILE, 1, {5,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_6_4", "Single tile (6,4) from mip level 1", TEST_SINGLE_TILE, 1, {6,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+    {"single_mip1_tile_7_4", "Single tile (7,4) from mip level 1", TEST_SINGLE_TILE, 1, {7,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK}
 };
 
 static int num_test_configs = sizeof(test_configs) / sizeof(test_configs[0]);
@@ -248,7 +462,7 @@ void write_frame_y4m(const char* filename, oapv_imgb_t* frame_buffer) {
  
     // Note: Buffer stride may have some padding for MB alignement.
     for(int i = 0; i < frame_buffer->np; i++) {
-        u8 *p8 = (unsigned char *)frame_buffer->a[i] + (frame_buffer->s[i] * frame_buffer->y[i]) + (frame_buffer->x[i] * bd);
+        u8 *p8 = (u8 *)frame_buffer->a[i] + (frame_buffer->s[i] * frame_buffer->y[i]) + (frame_buffer->x[i] * bd);
 
         for(int j = 0; j < frame_buffer->h[i]; j++) {
             fwrite(p8, frame_buffer->w[i] * bd, 1, fp);
@@ -284,7 +498,7 @@ int write_frame_raw(const char* filename, oapv_imgb_t* frame_buffer) {
 
     // Note: Buffer stride may have some padding for MB alignement.
     for(int i = 0; i < frame_buffer->np; i++) {
-        u8 *p8 = (unsigned char *)frame_buffer->a[i] + (frame_buffer->s[i] * frame_buffer->y[i]) + (frame_buffer->x[i] * bd);
+        u8 *p8 = (u8 *)frame_buffer->a[i] + (frame_buffer->s[i] * frame_buffer->y[i]) + (frame_buffer->x[i] * bd);
 
         for(int j = 0; j < frame_buffer->h[i]; j++) {
             fwrite(p8, frame_buffer->w[i] * bd, 1, fp);
@@ -389,7 +603,6 @@ void validate_full(oapv_imgb_t* frame_buffer, int num_tiles) {
         printf("  No decoded pixels found for validation\n");
     }
 }
-
 
 long file_bitreader_tell(oapvd_bitr_t* bitr)
 {
@@ -564,6 +777,24 @@ int run_test_config(const char* input_file, const test_config_t* config) {
                 }
                 write_frame_y4m(output_filename, frame_buffer);
                 printf("Written Y4M: %s\n", output_filename);
+
+                // Auto-generate PNG from Y4M
+                char png_filename[512];
+                char ffmpeg_cmd[1024];
+                strcpy(png_filename, output_filename);
+                // Replace .y4m extension with .png
+                char *ext = strrchr(png_filename, '.');
+                if (ext) strcpy(ext, ".png");
+
+                snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
+                    "ffmpeg -y -i \"%s\" \"%s\" 2>NUL", output_filename, png_filename);
+
+                int ffmpeg_result = system(ffmpeg_cmd);
+                if (ffmpeg_result == 0) {
+                    printf("Written PNG: %s\n", png_filename);
+                } else {
+                    printf("Warning: Failed to convert Y4M to PNG (ffmpeg not available or failed)\n");
+                }
             } else if (config->output_format == OUTPUT_RAW) {
                 if (config->test_type == TEST_MULTI_TILE) {
                     snprintf(output_filename, sizeof(output_filename), "output/%s_%dthreads.raw", config->name, thread_count);
