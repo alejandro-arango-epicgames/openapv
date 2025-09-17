@@ -734,6 +734,21 @@ OAPV_EXPORT int oapve_family_bitrate(int family, int w, int h, int fps_num, int 
  *****************************************************************************/
 OAPV_EXPORT const char *oapv_version(unsigned int *ver_num);
 
+/*****************************************************************************
+ * openapv logging helper
+ *****************************************************************************/
+
+#define OAPV_LOG_ERROR   0
+#define OAPV_LOG_WARNING 1
+#define OAPV_LOG_INFO 2
+#define OAPV_LOG_DEBUG 3
+
+/* Note: callback handlers must be thread safe. */
+typedef void (*oapv_log_callback_fn)(const char *message, int verbosity, void *userdata);
+
+OAPV_EXPORT void oapv_set_logging_callback(oapv_log_callback_fn callback, void *userdata);
+
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
