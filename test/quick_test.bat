@@ -26,8 +26,19 @@ if errorlevel 1 (
 REM Run the quick tests
 
 set TEST=multi_full_frame_validation
+rem set FRAME=media\koala_tiled\koala_tiled_0000.apv1
+set FRAME=media\koala_16k_tiled\koala_16k_tiled_0000.apv1
+
 echo Running %TEST% test...
-..\build\Release\decoder_test.exe media\koala_tiled\koala_tiled_0000.apv1 %TEST%
+rem ..\build\Release\decoder_test.exe %FRAME% %TEST%
+if errorlevel 1 goto error
+echo.
+
+set TEST=16k_all_tiles_performance
+set FRAME=media\koala_16k_tiled\koala_16k_tiled_0000.apv1
+
+echo Running %TEST% test...
+..\build\Release\decoder_test.exe %FRAME% %TEST%
 if errorlevel 1 goto error
 echo.
 
