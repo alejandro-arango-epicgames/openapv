@@ -3434,23 +3434,51 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         // Initialize thread pool if not already done
         oapv_tpool_t *tpool = ctx->tpool;
         
-        // Create and run worker threads
+        // Create worker threads with heap-allocated arguments
+        multi_tile_worker_t **thread_workers = (multi_tile_worker_t**)malloc((num_threads - 1) * sizeof(multi_tile_worker_t*));
+        if(!thread_workers) {
+            // Clean up and return error
+            oapv_tpool_sync_obj_delete(&sync_obj);
+            for(int b = 0; b < num_blocks; b++) {
+                free(read_blocks[b].buffer);
+            }
+            free(read_blocks);
+            free(work_queue);
+            return OAPV_ERR_OUT_OF_MEMORY;
+        }
+
         for(int t = 0; t < num_threads - 1; t++) {
-            multi_tile_worker_t *thread_worker = (multi_tile_worker_t*)malloc(sizeof(multi_tile_worker_t));
-            *thread_worker = worker;
-            thread_worker->core = ctx->core[t + 1];
-            
-            tpool->run(ctx->thread_id[t], dec_thread_tile_selective, thread_worker);
+            thread_workers[t] = (multi_tile_worker_t*)malloc(sizeof(multi_tile_worker_t));
+            if(!thread_workers[t]) {
+                // Clean up previously allocated workers
+                for(int j = 0; j < t; j++) {
+                    free(thread_workers[j]);
+                }
+                free(thread_workers);
+                oapv_tpool_sync_obj_delete(&sync_obj);
+                for(int b = 0; b < num_blocks; b++) {
+                    free(read_blocks[b].buffer);
+                }
+                free(read_blocks);
+                free(work_queue);
+                return OAPV_ERR_OUT_OF_MEMORY;
+            }
+            *thread_workers[t] = worker;
+            thread_workers[t]->core = ctx->core[t + 1];
+
+            tpool->run(ctx->thread_id[t], dec_thread_tile_selective, thread_workers[t]);
         }
         
         // Main thread also works
         dec_thread_tile_selective(&worker);
         
-        // Wait for all threads to complete
+        // Wait for all threads to complete and clean up
         for(int t = 0; t < num_threads - 1; t++) {
             int thread_ret;
             tpool->join(ctx->thread_id[t], &thread_ret);
+            free(thread_workers[t]);
         }
+        free(thread_workers);
     } else {
         // Single-threaded decode
         dec_thread_tile_selective(&worker);

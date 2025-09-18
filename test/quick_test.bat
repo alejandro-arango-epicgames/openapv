@@ -25,7 +25,7 @@ if errorlevel 1 (
 
 REM Run the quick tests
 
-set TEST=multi_full_frame_validation
+set TEST=16k_all_tiles_performance
 set FRAME=media\koala_16k_tiled\koala_16k_tiled_0000.apv1
 
 echo Running %TEST% test...
