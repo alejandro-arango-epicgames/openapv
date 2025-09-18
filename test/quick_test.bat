@@ -23,9 +23,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Run the main 6x4 multi-tile test
-echo Running 6x4 multi-tile test...
-..\build\Release\decoder_test.exe media\koala_tiled\koala_tiled_0000.apv1 multi_all_mip0
+REM Run the quick tests
+
+set TEST=multi_full_frame_validation
+echo Running %TEST% test...
+..\build\Release\decoder_test.exe media\koala_tiled\koala_tiled_0000.apv1 %TEST%
 if errorlevel 1 goto error
 echo.
 
