@@ -66,6 +66,10 @@ extern "C" {
 #define OAPV_VER_NUM \
     OAPV_VER_SET(OAPV_VER_APISET,OAPV_VER_MAJOR,OAPV_VER_MINOR,OAPV_VER_PATCH)
 
+/* TMV specific APIs */
+#define OAPV_HAS_SELECTIVE_DECODE_API   1
+#define OAPV_HAS_LOGGING_API            1
+
 /* size of macroblock */
 #define OAPV_LOG2_MB                    (4)
 #define OAPV_LOG2_MB_W                  (4)
@@ -266,6 +270,20 @@ extern "C" {
  *****************************************************************************/
 #define OAPV_RC_CQP                     (0)
 #define OAPV_RC_ABR                     (1)
+
+/*****************************************************************************
+ * logging verbosities
+ *****************************************************************************/
+
+#define OAPV_LOG_ERROR                  0
+#define OAPV_LOG_WARNING                1
+#define OAPV_LOG_INFO                   2
+#define OAPV_LOG_DEBUG                  3
+
+/*****************************************************************************
+ * logging callback (note: handlers must be thread safe)
+ *****************************************************************************/
+typedef void (*oapv_log_callback_t)(const char *message, int verbosity, void *userdata);
 
 /*****************************************************************************
  * type and macro for media time
@@ -652,7 +670,7 @@ struct oapv_selective_decode {
     int mip_level;                          // Which mip level to decode (0=full, 1=half, etc.)
     int num_tiles;                          // Number of tiles to decode
     int tile_coords[2*OAPV_MAX_TILES];      // Pairs of [col, row] for each tile
-    oapv_imgb_t *output_buffer;            // Per-channel output buffers (Y, U, V, A)
+    oapv_imgb_t *output_buffer;             // Per-channel output buffers (Y, U, V, A)
     
     // Frame metadata (filled by decoder)
     int actual_frame_width;                 // Actual frame width from mip level metadata
@@ -661,6 +679,17 @@ struct oapv_selective_decode {
     int actual_tile_height;                 // Actual tile height in pixels (converted from MBs)
     int bit_depth;                          // Bit depth from frame metadata
     int chroma_format;                      // Chroma format from frame metadata
+};
+
+/*****************************************************************************
+ * selective decode input stream
+ *****************************************************************************/
+typedef struct oapvd_istream oapvd_istream_t;
+struct oapvd_istream {
+    void *data;
+    long (*tell)(oapvd_istream_t *bitr);
+    int (*seek)(oapvd_istream_t *bitr, long offset, int origin);
+    size_t (*read)(oapvd_istream_t *bitr, void *buffer, size_t size, size_t count);
 };
 
 /*****************************************************************************
@@ -710,18 +739,8 @@ OAPV_EXPORT oapvd_t oapvd_create(oapvd_cdesc_t *cdesc, int *err);
 OAPV_EXPORT void oapvd_delete(oapvd_t did);
 OAPV_EXPORT int oapvd_config(oapvd_t did, int cfg, void *buf, int *size);
 OAPV_EXPORT int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid, oapvd_stat_t *stat);
-
-/* Wrapper for stream reader api */
-typedef struct oapvd_bitr oapvd_bitr_t;
-struct oapvd_bitr {
-    void *data;
-    long (*tell)(oapvd_bitr_t *bitr);
-    int (*seek)(oapvd_bitr_t *bitr, long offset, int origin);
-    size_t (*read)(oapvd_bitr_t *bitr, void* buffer, size_t size, size_t count);
-};
-
-OAPV_EXPORT int oapvd_decode_selective(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
-OAPV_EXPORT int oapvd_decode_selective_multi(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
+OAPV_EXPORT int oapvd_decode_selective(oapvd_t did, oapvd_istream_t *istream, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
+OAPV_EXPORT int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
 
 /*****************************************************************************
  * interface for utility
@@ -730,24 +749,15 @@ OAPV_EXPORT int oapvd_info(void *au, int au_size, oapv_au_info_t *aui);
 OAPV_EXPORT int oapve_family_bitrate(int family, int w, int h, int fps_num, int fps_den, int * kbps);
 
 /*****************************************************************************
+ * openapv logging
+ *****************************************************************************/
+OAPV_EXPORT void oapv_set_logging_callback(oapv_log_callback_t callback, void *userdata);
+OAPV_EXPORT void oapv_set_logging_verbosity(int verbosity);
+
+/*****************************************************************************
  * openapv version
  *****************************************************************************/
 OAPV_EXPORT const char *oapv_version(unsigned int *ver_num);
-
-/*****************************************************************************
- * openapv logging helper
- *****************************************************************************/
-
-#define OAPV_LOG_ERROR   0
-#define OAPV_LOG_WARNING 1
-#define OAPV_LOG_INFO 2
-#define OAPV_LOG_DEBUG 3
-
-/* Note: callback handlers must be thread safe. */
-typedef void (*oapv_log_callback_fn)(const char *message, int verbosity, void *userdata);
-
-OAPV_EXPORT void oapv_set_logging_callback(oapv_log_callback_fn callback, void *userdata);
-
 
 #ifdef __cplusplus
 } /* extern "C" */

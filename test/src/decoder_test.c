@@ -604,33 +604,33 @@ void validate_full(oapv_imgb_t* frame_buffer, int num_tiles) {
     }
 }
 
-long file_bitreader_tell(oapvd_bitr_t* bitr)
+long file_istream_tell(oapvd_istream_t* istream)
 {
-    FILE *fp = (FILE *)bitr->data;
+    FILE *fp = (FILE *)istream->data;
 
     return ftell(fp);
 }
 
-int file_bitreader_seek(oapvd_bitr_t *bitr, long offset, int origin)
+int file_istream_seek(oapvd_istream_t *istream, long offset, int origin)
 {
-    FILE *fp = (FILE *)bitr->data;
+    FILE *fp = (FILE *)istream->data;
 
     return fseek(fp, offset, origin);
 }
 
-size_t file_bitreader_read(oapvd_bitr_t *bitr, void* buffer, size_t size, size_t count)
+size_t file_istream_read(oapvd_istream_t *istream, void* buffer, size_t size, size_t count)
 {
-    FILE *fp = (FILE *)bitr->data;
+    FILE *fp = (FILE *)istream->data;
 
     return fread(buffer, size, count, fp);
 }
 
-void file_bitreader_init(oapvd_bitr_t* bitr, FILE* fp)
+void file_istream_init(oapvd_istream_t* istream, FILE* fp)
 {
-    bitr->data = fp;
-    bitr->tell = file_bitreader_tell;
-    bitr->seek = file_bitreader_seek;
-    bitr->read = file_bitreader_read;
+    istream->data = fp;
+    istream->tell = file_istream_tell;
+    istream->seek = file_istream_seek;
+    istream->read = file_istream_read;
 }
 
 // Run a single test configuration
@@ -672,15 +672,15 @@ int run_test_config(const char* input_file, const test_config_t* config) {
     
     oapvd_stat_t stat = {0};
 
-    oapvd_bitr_t bitr;
-    file_bitreader_init(&bitr, fp);
+    oapvd_istream_t istream;
+    file_istream_init(&istream, fp);
     
     // Get metadata
     int ret;
     if (config->test_type == TEST_SINGLE_TILE) {
-        ret = oapvd_decode_selective(decoder_id, &bitr, &sel_decode, 0, &stat);
+        ret = oapvd_decode_selective(decoder_id, &istream, &sel_decode, 0, &stat);
     } else {
-        ret = oapvd_decode_selective_multi(decoder_id, &bitr, &sel_decode, 0, &stat);
+        ret = oapvd_decode_selective_multi(decoder_id, &istream, &sel_decode, 0, &stat);
     }
     
     if (OAPV_FAILED(ret)) {
@@ -726,9 +726,9 @@ int run_test_config(const char* input_file, const test_config_t* config) {
         
         // Run the decode
         if (config->test_type == TEST_SINGLE_TILE) {
-            ret = oapvd_decode_selective(decoder_id, &bitr, &sel_decode, 0, &stat);
+            ret = oapvd_decode_selective(decoder_id, &istream, &sel_decode, 0, &stat);
         } else {
-            ret = oapvd_decode_selective_multi(decoder_id, &bitr, &sel_decode, 0, &stat);
+            ret = oapvd_decode_selective_multi(decoder_id, &istream, &sel_decode, 0, &stat);
         }
         
         clock_t end_time = clock();

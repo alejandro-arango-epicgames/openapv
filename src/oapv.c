@@ -37,12 +37,18 @@
 #include <time.h>
 #endif
 
-static oapv_log_callback_fn current_log_callback = NULL;
+static oapv_log_callback_t current_log_callback = NULL;
 static void* current_log_user_data = NULL;
+static int current_log_verbosity = OAPV_LOG_DEBUG;
 
 /* Simple log message for trouble shooting. */
 static void log_msg(int verbosity, const char *fmt, ...)
 {
+    if (verbosity > current_log_verbosity)
+    {
+        return;
+    }
+
     char str[1024] = { '\0' };
     va_list args;
     va_start(args, fmt);
@@ -2368,7 +2374,7 @@ static int create_tile_views(oapv_imgb_t *output_buffers[4], int tile_col, int t
 }
 
 // Selective decode implementation
-int oapvd_decode_selective(oapvd_t did, oapvd_bitr_t * bitr, oapv_selective_decode_t * sel_decode,
+int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selective_decode_t * sel_decode,
                         oapvm_t mid, oapvd_stat_t * stat)
 {
     oapvd_ctx_t *ctx;
@@ -2381,23 +2387,23 @@ int oapvd_decode_selective(oapvd_t did, oapvd_bitr_t * bitr, oapv_selective_deco
     int target_mip_level = sel_decode->mip_level;
     
     // Read and parse frame header to get tile information
-    bitr->seek(bitr, 0, SEEK_SET);
+    istream->seek(istream, 0, SEEK_SET);
     
     // Read AU size (big-endian, like in oapv_app_dec.c)
     u8 size_buf[4];
-    bitr->read(bitr, size_buf, 4, 1);
+    istream->read(istream, size_buf, 4, 1);
     u32 au_size = (size_buf[0] << 24) | (size_buf[1] << 16) | (size_buf[2] << 8) | size_buf[3];
     stat->read += 4;
     
     // For selective I/O: Read entire AU first to parse headers and get tile sizes
     // Then we'll seek back and read only the target tile data
-    long au_start_pos = bitr->tell(bitr);
+    long au_start_pos = istream->tell(istream);
     
     u8 *au_buffer = (u8*)malloc(au_size);
     if(!au_buffer) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
-    bitr->read(bitr, au_buffer, au_size, 1);    // this is reading the whole access unit.
+    istream->read(istream, au_buffer, au_size, 1);    // this is reading the whole access unit.
     
     // Parse bitstream using the buffer approach like normal decoder
     oapv_bitb_t bitb;
@@ -2511,7 +2517,10 @@ int oapvd_decode_selective(oapvd_t did, oapvd_bitr_t * bitr, oapv_selective_deco
         dummy_imgb.cs = sel_decode->output_buffer->cs;  // use the destination cs.
     }
     dummy_imgb.refcnt = 1;
-    
+
+    // Initialize ctx->bs for dec_frm_prepare
+    oapv_bsr_init(&ctx->bs, bs.cur, bs.end - bs.cur, NULL);
+   
     ret = dec_frm_prepare(ctx, &dummy_imgb);
 
     if(OAPV_FAILED(ret)) {
@@ -2565,14 +2574,14 @@ int oapvd_decode_selective(oapvd_t did, oapvd_bitr_t * bitr, oapv_selective_deco
     au_buffer = NULL;
     
     // Seek to target tile position in file and read only that tile's data
-    bitr->seek(bitr, tile_file_position, SEEK_SET);
+    istream->seek(istream, tile_file_position, SEEK_SET);
     
     u8 *tile_data = (u8*)malloc(tile_size);
     if(!tile_data) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
     
-    size_t bytes_read = bitr->read(bitr, tile_data, 1, tile_size);
+    size_t bytes_read = istream->read(istream, tile_data, 1, tile_size);
     if(bytes_read != tile_size) {
         log_msg(OAPV_LOG_ERROR, "Failed to read tile data - expected %u bytes, got %zu bytes\n", tile_size, bytes_read);
         free(tile_data);
@@ -2894,7 +2903,7 @@ static int dec_thread_tile_selective(void *arg)
 }
 
 // New multi-tile selective decoder implementation
-int oapvd_decode_selective_multi(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective_decode_t *sel_decode, 
+int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_selective_decode_t *sel_decode, 
                                 oapvm_t mid, oapvd_stat_t *stat)
 {
     oapvd_ctx_t *ctx;
@@ -2913,22 +2922,22 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective
     
     
     // Read and parse frame header to get tile information
-    bitr->seek(bitr, 0, SEEK_SET);
+    istream->seek(istream, 0, SEEK_SET);
     
     // Read AU size
     u8 size_buf[4];
-    bitr->read(bitr, size_buf, 4, 1);
+    istream->read(istream, size_buf, 4, 1);
     u32 au_size = (size_buf[0] << 24) | (size_buf[1] << 16) | (size_buf[2] << 8) | size_buf[3];
     stat->read += 4;
     
-    long au_start_pos = bitr->tell(bitr);
+    long au_start_pos = istream->tell(istream);
     
     // Read entire AU to parse headers
     u8 *au_buffer = (u8*)malloc(au_size);
     if(!au_buffer) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
-    bitr->read(bitr, au_buffer, au_size, 1);
+    istream->read(istream, au_buffer, au_size, 1);
     metrics.bytes_read += au_size;
     
     // Parse bitstream
@@ -3132,8 +3141,8 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_bitr_t *bitr, oapv_selective
     
     // Perform coalesced reads
     for(int b = 0; b < num_blocks; b++) {
-        bitr->seek(bitr, read_blocks[b].start_offset, SEEK_SET);
-        bitr->read(bitr, read_blocks[b].buffer, read_blocks[b].total_size, 1);
+        istream->seek(istream, read_blocks[b].start_offset, SEEK_SET);
+        istream->read(istream, read_blocks[b].buffer, read_blocks[b].total_size, 1);
         metrics.bytes_read += read_blocks[b].total_size;
         
         // Assign data pointers to tiles in this block
@@ -3240,8 +3249,13 @@ const char *oapv_version(unsigned int *ver_num)
     return (char*)oapv_version_string;
 }
 
-void oapv_set_logging_callback(oapv_log_callback_fn callback, void* user_data)
+void oapv_set_logging_callback(oapv_log_callback_t callback, void* user_data)
 {
     current_log_callback = callback;
     current_log_user_data = user_data;
+}
+
+void oapv_set_logging_verbosity(int verbosity)
+{
+    current_log_verbosity = verbosity;
 }
