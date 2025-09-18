@@ -44,6 +44,7 @@ if errorlevel 1 (
 )
 echo.
 
+
 REM Convert all raw files to PNG
 echo ========================================
 echo Converting all RAW files to PNG images...
