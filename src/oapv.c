@@ -3049,7 +3049,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     
     long au_start_pos = istream->tell(istream);
     
-    // Locate target mip level frame without loading entire AU
+    // Locate target mip level frame using header-only reading
     // Verify APV signature
     u8 sig_buf[4];
     istream->read(istream, sig_buf, 4, 1);
@@ -3065,10 +3065,10 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     u32 target_pbu_size = 0;
     long target_frame_file_pos = 0;
 
-    // Phase 2: Progressive chunking for header reading
-    const u32 INITIAL_CHUNK_SIZE = 8192; // Start with 8KB
-    const u32 MAX_CHUNK_SIZE = 65536;    // Cap at 64KB for safety
-    u32 header_buffer_size = 0; // Track actual buffer size for VLC parsing
+    // I/O optimization: Read only frame headers instead of full PBUs
+    const u32 INITIAL_HEADER_CHUNK = 8192;  // Start with 8KB for headers
+    const u32 MAX_HEADER_CHUNK = 65536;     // Maximum header buffer size
+    u32 header_buffer_size = 0;
 
     if(target_mip_level == 0) {
         // Mip 0 is always the first PBU after signature
@@ -3087,14 +3087,14 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         istream->read(istream, pbu_header_buf, 8, 1);
         metrics.bytes_read += 8;
 
-        // Phase 2: Start with initial chunk size, capped by PBU size
-        header_buffer_size = (target_pbu_size < INITIAL_CHUNK_SIZE) ? target_pbu_size : INITIAL_CHUNK_SIZE;
+        // Allocate header buffer: start small, expand if needed during parsing
+        header_buffer_size = (target_pbu_size < INITIAL_HEADER_CHUNK) ? target_pbu_size : INITIAL_HEADER_CHUNK;
         frame_buffer = (u8*)malloc(header_buffer_size);
         if(!frame_buffer) {
             return OAPV_ERR_OUT_OF_MEMORY;
         }
 
-        // Copy PBU header and read only header portion
+        // Copy PBU header and read frame header data
         memcpy(frame_buffer, pbu_header_buf, 8);
         u32 remaining_to_read = header_buffer_size - 8;
         istream->read(istream, frame_buffer + 8, remaining_to_read, 1);
@@ -3140,14 +3140,14 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
                 target_frame_file_pos = current_pos;
                 target_pbu_size = pbu_size;
 
-                // Phase 2: Allocate only enough for headers
-                header_buffer_size = (pbu_size < INITIAL_CHUNK_SIZE) ? pbu_size : INITIAL_CHUNK_SIZE;
+                // Allocate header buffer for target frame
+                header_buffer_size = (pbu_size < INITIAL_HEADER_CHUNK) ? pbu_size : INITIAL_HEADER_CHUNK;
                 frame_buffer = (u8*)malloc(header_buffer_size);
                 if(!frame_buffer) {
                     return OAPV_ERR_OUT_OF_MEMORY;
                 }
 
-                // Copy PBU header and read only header portion
+                // Copy PBU header and read frame header data
                 memcpy(frame_buffer, pbu_header_buf, 8);
                 u32 remaining_to_read = header_buffer_size - 8;
                 istream->read(istream, frame_buffer + 8, remaining_to_read, 1);
@@ -3178,7 +3178,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
 
     dummy_imgb.refcnt = 1;
 
-    // Progressive chunking: try parsing with current buffer, expand if needed
+    // Parse headers with progressive chunking: expand buffer if VLC parsing needs more data
     oapv_bs_t pbu_bs;
     oapv_pbuh_t pbuh_check;
     int parse_success = 0;
@@ -3190,13 +3190,13 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         // Try parsing PBU header
         ret = oapvd_vlc_pbu_header(&pbu_bs, &pbuh_check);
         if(OAPV_FAILED(ret)) {
-            // Check if we ran out of data (cursor near end of buffer)
+            // Check if VLC parser consumed most of buffer (likely needs more data)
             long bytes_consumed = pbu_bs.cur - pbu_bs.beg;
             if(bytes_consumed >= (long)(header_buffer_size * 0.9) && header_buffer_size < target_pbu_size) {
-                // Likely insufficient data - expand buffer
+                // Expand buffer and read more header data
                 u32 new_size = header_buffer_size * 2;
                 if(new_size > target_pbu_size) new_size = target_pbu_size;
-                if(new_size > MAX_CHUNK_SIZE) new_size = MAX_CHUNK_SIZE;
+                if(new_size > MAX_HEADER_CHUNK) new_size = MAX_HEADER_CHUNK;
 
                 u8 *new_buffer = (u8*)realloc(frame_buffer, new_size);
                 if(!new_buffer) {
@@ -3207,6 +3207,8 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
 
                 // Read additional data
                 u32 additional_bytes = new_size - header_buffer_size;
+                log_msg(OAPV_LOG_DEBUG, "Header buffer expansion: %u -> %u bytes (+%u)\n",
+                        header_buffer_size, new_size, additional_bytes);
                 istream->read(istream, frame_buffer + header_buffer_size, additional_bytes, 1);
                 metrics.bytes_read += additional_bytes;
                 header_buffer_size = new_size;
@@ -3221,13 +3223,13 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         // Try parsing frame header
         ret = oapvd_vlc_frame_header(&pbu_bs, &ctx->fh);
         if(OAPV_FAILED(ret)) {
-            // Check if we ran out of data
+            // Check if VLC parser consumed most of buffer (likely needs more data)
             long bytes_consumed = pbu_bs.cur - pbu_bs.beg;
             if(bytes_consumed >= (long)(header_buffer_size * 0.9) && header_buffer_size < target_pbu_size) {
-                // Likely insufficient data - expand buffer
+                // Expand buffer and read more header data
                 u32 new_size = header_buffer_size * 2;
                 if(new_size > target_pbu_size) new_size = target_pbu_size;
-                if(new_size > MAX_CHUNK_SIZE) new_size = MAX_CHUNK_SIZE;
+                if(new_size > MAX_HEADER_CHUNK) new_size = MAX_HEADER_CHUNK;
 
                 u8 *new_buffer = (u8*)realloc(frame_buffer, new_size);
                 if(!new_buffer) {
@@ -3238,6 +3240,8 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
 
                 // Read additional data
                 u32 additional_bytes = new_size - header_buffer_size;
+                log_msg(OAPV_LOG_DEBUG, "Header buffer expansion: %u -> %u bytes (+%u)\n",
+                        header_buffer_size, new_size, additional_bytes);
                 istream->read(istream, frame_buffer + header_buffer_size, additional_bytes, 1);
                 metrics.bytes_read += additional_bytes;
                 header_buffer_size = new_size;
@@ -3274,9 +3278,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     long header_consumed = pbu_bs.cur - pbu_bs.beg;
     target_frame_data_offset = target_frame_file_pos + 4 + header_consumed;
 
-    // Phase 2: We don't have tile data in memory anymore
-    // dec_frm_prepare doesn't actually read tile data, it only sets up context
-    // So we can pass an empty bitstream
+    // Initialize decoder context (doesn't need tile data, only frame metadata)
     u8 dummy_tile_data = 0;
     oapv_bsr_init(&ctx->bs, &dummy_tile_data, 0, NULL);
 
@@ -3286,7 +3288,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         return ret;
     }
 
-    // Phase 2: Free header buffer now - we have all metadata we need
+    // Free header buffer - all metadata extracted to ctx->fh
     free(frame_buffer);
     frame_buffer = NULL;
 
