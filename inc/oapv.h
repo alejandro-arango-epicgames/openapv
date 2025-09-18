@@ -87,8 +87,8 @@ extern "C" {
 #define OAPV_BLK_D                      (OAPV_BLK_W * OAPV_BLK_H)
 
 /* size of tile */
-#define OAPV_MAX_TILE_ROWS              (20) // max number of tiles in row
-#define OAPV_MAX_TILE_COLS              (20) // max number of tiles in column
+#define OAPV_MAX_TILE_ROWS              (64) // max number of tiles in row (supports 16K with 256x256 pixel tiles)
+#define OAPV_MAX_TILE_COLS              (64) // max number of tiles in column
 #define OAPV_MAX_TILES                  (OAPV_MAX_TILE_ROWS * OAPV_MAX_TILE_COLS)
 #define OAPV_MIN_TILE_W_MB              (16)
 #define OAPV_MIN_TILE_H_MB              (8)

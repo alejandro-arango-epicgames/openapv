@@ -255,7 +255,13 @@ void oapve_set_frame_header(oapve_ctx_t *ctx, oapv_fh_t *fh)
 {
     oapve_param_t *param = ctx->param;
 
+    // Preserve dynamically allocated tile_size pointer
+    u32 *tile_size_backup = fh->tile_size;
+
     oapv_mset(fh, 0, sizeof(oapv_fh_t));
+
+    // Restore tile_size pointer
+    fh->tile_size = tile_size_backup;
     fh->fi.profile_idc = param->profile_idc;
     fh->fi.level_idc = param->level_idc;
     fh->fi.band_idc = param->band_idc;
@@ -741,6 +747,7 @@ static int dec_vlc_q_matrix(oapv_bs_t *bs, oapv_fh_t *fh)
 static int dec_vlc_tile_info(oapv_bs_t *bs, oapv_fh_t *fh)
 {
     int pic_w, pic_h, tile_w, tile_h, tile_cols, tile_rows;
+    int num_tiles;
 
     fh->tile_width_in_mbs = oapv_bsr_read(bs, 20);
     DUMP_HLS(fh->tile_width_in_mbs, fh->tile_width_in_mbs);
@@ -759,14 +766,22 @@ static int dec_vlc_tile_info(oapv_bs_t *bs, oapv_fh_t *fh)
 
     tile_cols = (pic_w + (tile_w - 1)) / tile_w;
     tile_rows = (pic_h + (tile_h - 1)) / tile_h;
+    num_tiles = tile_cols * tile_rows;
 
-    oapv_assert_rv(tile_cols <= OAPV_MAX_TILE_COLS && tile_rows <= OAPV_MAX_TILE_ROWS, OAPV_ERR_MALFORMED_BITSTREAM)
+    oapv_assert_rv(tile_cols <= OAPV_MAX_TILE_COLS && tile_rows <= OAPV_MAX_TILE_ROWS, OAPV_ERR_MALFORMED_BITSTREAM);
+    oapv_assert_rv(num_tiles <= OAPV_MAX_TILES, OAPV_ERR_MALFORMED_BITSTREAM);
+
+    // Allocate tile_size array if needed
+    if(fh->tile_size == NULL) {
+        fh->tile_size = (u32 *)oapv_malloc_fast(num_tiles * sizeof(u32));
+        oapv_assert_rv(fh->tile_size != NULL, OAPV_ERR_OUT_OF_MEMORY);
+    }
 
     fh->tile_size_present_in_fh_flag = oapv_bsr_read1(bs);
     DUMP_HLS(fh->tile_size_present_in_fh_flag, fh->tile_size_present_in_fh_flag);
 
     if(fh->tile_size_present_in_fh_flag) {
-        for(int i = 0; i < tile_cols * tile_rows; i++) {
+        for(int i = 0; i < num_tiles; i++) {
             fh->tile_size[i] = oapv_bsr_read(bs, 32);
             DUMP_HLS(fh->tile_size, fh->tile_size[i]);
             oapv_assert_rv(fh->tile_size[i] > 0, OAPV_ERR_MALFORMED_BITSTREAM);

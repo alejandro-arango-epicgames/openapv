@@ -117,8 +117,8 @@ static test_config_t test_configs[] = {
         .test_type = TEST_MULTI_TILE,
         .mip_level = 0,
         .tile_coords = {0,0, 14,0, 0,8, 14,8, -1,-1},
-        .thread_counts = {4, 0},
-        .output_format = OUTPUT_NONE,
+        .thread_counts = {1, 4, 32, 0},
+        .output_format = OUTPUT_Y4M,
         .measure_performance = 1,
         .validation_level = VALIDATE_QUICK
     },
@@ -171,7 +171,7 @@ static test_config_t test_configs[] = {
                        0,7, 1,7, 2,7, 3,7, 4,7, 5,7, 6,7, 7,7, 8,7, 9,7, 10,7, 11,7, 12,7, 13,7, 14,7,  // Row 7
                        0,8, 1,8, 2,8, 3,8, 4,8, 5,8, 6,8, 7,8, 8,8, 9,8, 10,8, 11,8, 12,8, 13,8, 14,8,  // Row 8
                        -1,-1},
-        .thread_counts = {8, 0},
+        .thread_counts = {32, 0},
         .output_format = OUTPUT_Y4M,
         .measure_performance = 1,
         .validation_level = VALIDATE_QUICK
@@ -376,7 +376,106 @@ static test_config_t test_configs[] = {
     {"single_mip1_tile_4_4", "Single tile (4,4) from mip level 1", TEST_SINGLE_TILE, 1, {4,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
     {"single_mip1_tile_5_4", "Single tile (5,4) from mip level 1", TEST_SINGLE_TILE, 1, {5,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
     {"single_mip1_tile_6_4", "Single tile (6,4) from mip level 1", TEST_SINGLE_TILE, 1, {6,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
-    {"single_mip1_tile_7_4", "Single tile (7,4) from mip level 1", TEST_SINGLE_TILE, 1, {7,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK}
+    {"single_mip1_tile_7_4", "Single tile (7,4) from mip level 1", TEST_SINGLE_TILE, 1, {7,4, -1,-1}, {1, 0}, OUTPUT_Y4M, 0, VALIDATE_QUICK},
+
+    // 16K frame tests (60x34 = 2040 tiles)
+    {
+        .name = "16k_single_corner",
+        .description = "Single tile at 16K frame corner (0,0)",
+        .test_type = TEST_SINGLE_TILE,
+        .mip_level = 0,
+        .tile_coords = {0, 0, -1, -1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 0,
+        .validation_level = VALIDATE_FULL
+    },
+    {
+        .name = "16k_single_center",
+        .description = "Single tile at 16K frame center (30,17)",
+        .test_type = TEST_SINGLE_TILE,
+        .mip_level = 0,
+        .tile_coords = {30, 17, -1, -1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 0,
+        .validation_level = VALIDATE_FULL
+    },
+    {
+        .name = "16k_single_edge_right",
+        .description = "Single tile at 16K frame right edge (59,17)",
+        .test_type = TEST_SINGLE_TILE,
+        .mip_level = 0,
+        .tile_coords = {59, 17, -1, -1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 0,
+        .validation_level = VALIDATE_FULL
+    },
+    {
+        .name = "16k_single_edge_bottom",
+        .description = "Single tile at 16K frame bottom edge (30,33)",
+        .test_type = TEST_SINGLE_TILE,
+        .mip_level = 0,
+        .tile_coords = {30, 33, -1, -1},
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 0,
+        .validation_level = VALIDATE_FULL
+    },
+    {
+        .name = "16k_multi_2x2_center",
+        .description = "16K 2x2 contiguous tile block at center",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 0,
+        .tile_coords = {29,16, 30,16, 29,17, 30,17, -1,-1},
+        .thread_counts = {4, 8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_FULL
+    },
+    {
+        .name = "16k_multi_10x10_center",
+        .description = "16K 10x10 tile block testing high tile count",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 0,
+        .tile_coords = {
+            25,12, 26,12, 27,12, 28,12, 29,12, 30,12, 31,12, 32,12, 33,12, 34,12,  // Row 12
+            25,13, 26,13, 27,13, 28,13, 29,13, 30,13, 31,13, 32,13, 33,13, 34,13,  // Row 13
+            25,14, 26,14, 27,14, 28,14, 29,14, 30,14, 31,14, 32,14, 33,14, 34,14,  // Row 14
+            25,15, 26,15, 27,15, 28,15, 29,15, 30,15, 31,15, 32,15, 33,15, 34,15,  // Row 15
+            25,16, 26,16, 27,16, 28,16, 29,16, 30,16, 31,16, 32,16, 33,16, 34,16,  // Row 16
+            25,17, 26,17, 27,17, 28,17, 29,17, 30,17, 31,17, 32,17, 33,17, 34,17,  // Row 17
+            25,18, 26,18, 27,18, 28,18, 29,18, 30,18, 31,18, 32,18, 33,18, 34,18,  // Row 18
+            25,19, 26,19, 27,19, 28,19, 29,19, 30,19, 31,19, 32,19, 33,19, 34,19,  // Row 19
+            25,20, 26,20, 27,20, 28,20, 29,20, 30,20, 31,20, 32,20, 33,20, 34,20,  // Row 20
+            25,21, 26,21, 27,21, 28,21, 29,21, 30,21, 31,21, 32,21, 33,21, 34,21,  // Row 21
+            -1,-1
+        },
+        .thread_counts = {8, 16, 24, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_QUICK
+    },
+    {
+        .name = "16k_tile_limit_validation",
+        .description = "16K frame verifying 2040 tiles > old 400 limit",
+        .test_type = TEST_MULTI_TILE,
+        .mip_level = 0,
+        .tile_coords = {
+            // Sample tiles from all 4 corners and center to prove we can address the full 60x34 grid
+            0,0,    // Top-left corner
+            59,0,   // Top-right corner
+            0,33,   // Bottom-left corner
+            59,33,  // Bottom-right corner
+            30,17,  // Center
+            -1,-1
+        },
+        .thread_counts = {4, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_FULL
+    }
 };
 
 static int num_test_configs = sizeof(test_configs) / sizeof(test_configs[0]);
@@ -852,29 +951,29 @@ int main(int argc, char* argv[]) {
         for(int i = 0; i < num_test_configs; i++) {
             run_test_config(input_file, &test_configs[i]);
         }
-    } else if (test_selector[0] >= '1' && test_selector[0] <= '9') {
-        // Run by number
-        int test_num = atoi(test_selector) - 1;
-        if (test_num >= 0 && test_num < num_test_configs) {
-            run_test_config(input_file, &test_configs[test_num]);
-        } else {
-            printf("ERROR: Invalid test number %d (valid range: 1-%d)\n", test_num+1, num_test_configs);
-            return -1;
-        }
     } else {
-        // Run by name
-        int found = 0;
-        for(int i = 0; i < num_test_configs; i++) {
-            if (strcmp(test_configs[i].name, test_selector) == 0) {
-                run_test_config(input_file, &test_configs[i]);
-                found = 1;
-                break;
+        // Check if test_selector is a pure number using strtol
+        char *endptr;
+        long test_num = strtol(test_selector, &endptr, 10);
+
+        if (*endptr == '\0' && test_num > 0 && test_num <= num_test_configs) {
+            // Entire string was a valid number - run by number
+            run_test_config(input_file, &test_configs[test_num - 1]);
+        } else {
+            // Run by name
+            int found = 0;
+            for(int i = 0; i < num_test_configs; i++) {
+                if (strcmp(test_configs[i].name, test_selector) == 0) {
+                    run_test_config(input_file, &test_configs[i]);
+                    found = 1;
+                    break;
+                }
             }
-        }
-        if (!found) {
-            printf("ERROR: Test '%s' not found\n", test_selector);
-            print_available_tests();
-            return -1;
+            if (!found) {
+                printf("ERROR: Test '%s' not found\n", test_selector);
+                print_available_tests();
+                return -1;
+            }
         }
     }
     

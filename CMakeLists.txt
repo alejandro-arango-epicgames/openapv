@@ -265,3 +265,9 @@ set_tests_properties(decode PROPERTIES
 add_executable(decoder_test test/src/decoder_test.c)
 target_link_libraries(decoder_test oapv)
 target_compile_definitions(decoder_test PRIVATE ENABLE_DECODER=1)
+
+# 16K tile decoding test (validates new tile limits)
+add_executable(test_16k_tiles test/src/test_16k_tiles.c)
+target_link_libraries(test_16k_tiles oapv)
+target_include_directories(test_16k_tiles PRIVATE ${CMAKE_SOURCE_DIR}/inc)
+target_compile_definitions(test_16k_tiles PRIVATE ENABLE_DECODER=1)
