@@ -3065,11 +3065,16 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     u32 target_pbu_size = 0;
     long target_frame_file_pos = 0;
 
+    // Phase 2: Progressive chunking for header reading
+    const u32 INITIAL_CHUNK_SIZE = 8192; // Start with 8KB
+    const u32 MAX_CHUNK_SIZE = 65536;    // Cap at 64KB for safety
+    u32 header_buffer_size = 0; // Track actual buffer size for VLC parsing
+
     if(target_mip_level == 0) {
         // Mip 0 is always the first PBU after signature
         target_frame_file_pos = au_start_pos + 4;
 
-        // Read PBU size and data
+        // Read PBU size
         istream->seek(istream, au_start_pos + 4, SEEK_SET);
         u8 pbu_size_buf[4];
         istream->read(istream, pbu_size_buf, 4, 1);
@@ -3082,14 +3087,18 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         istream->read(istream, pbu_header_buf, 8, 1);
         metrics.bytes_read += 8;
 
-        // Allocate buffer and reconstruct complete PBU
-        frame_buffer = (u8*)malloc(target_pbu_size);
+        // Phase 2: Start with initial chunk size, capped by PBU size
+        header_buffer_size = (target_pbu_size < INITIAL_CHUNK_SIZE) ? target_pbu_size : INITIAL_CHUNK_SIZE;
+        frame_buffer = (u8*)malloc(header_buffer_size);
         if(!frame_buffer) {
             return OAPV_ERR_OUT_OF_MEMORY;
         }
+
+        // Copy PBU header and read only header portion
         memcpy(frame_buffer, pbu_header_buf, 8);
-        istream->read(istream, frame_buffer + 8, target_pbu_size - 8, 1);
-        metrics.bytes_read += (target_pbu_size - 8);
+        u32 remaining_to_read = header_buffer_size - 8;
+        istream->read(istream, frame_buffer + 8, remaining_to_read, 1);
+        metrics.bytes_read += remaining_to_read;
 
     } else {
         // Higher mip levels: traverse PBUs sequentially
@@ -3127,20 +3136,22 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
            pbuh.pbu_type == OAPV_PBU_TYPE_NON_PRIMARY_FRAME) {
 
             if(current_frame == target_mip_level) {
-                // Found target frame - read complete PBU
+                // Found target frame - read headers only
                 target_frame_file_pos = current_pos;
                 target_pbu_size = pbu_size;
 
-                frame_buffer = (u8*)malloc(pbu_size);
+                // Phase 2: Allocate only enough for headers
+                header_buffer_size = (pbu_size < INITIAL_CHUNK_SIZE) ? pbu_size : INITIAL_CHUNK_SIZE;
+                frame_buffer = (u8*)malloc(header_buffer_size);
                 if(!frame_buffer) {
                     return OAPV_ERR_OUT_OF_MEMORY;
                 }
 
-                // Reconstruct complete PBU in memory
+                // Copy PBU header and read only header portion
                 memcpy(frame_buffer, pbu_header_buf, 8);
-                u32 remaining_pbu_size = pbu_size - 8;
-                istream->read(istream, frame_buffer + 8, remaining_pbu_size, 1);
-                metrics.bytes_read += remaining_pbu_size;
+                u32 remaining_to_read = header_buffer_size - 8;
+                istream->read(istream, frame_buffer + 8, remaining_to_read, 1);
+                metrics.bytes_read += remaining_to_read;
                 break;
             } else {
                 current_frame++;
@@ -3167,23 +3178,83 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
 
     dummy_imgb.refcnt = 1;
 
-    // Parse frame headers from reconstructed PBU buffer
+    // Progressive chunking: try parsing with current buffer, expand if needed
     oapv_bs_t pbu_bs;
-    oapv_bsr_init(&pbu_bs, frame_buffer, target_pbu_size, NULL);
-
-    // Parse PBU header
     oapv_pbuh_t pbuh_check;
-    ret = oapvd_vlc_pbu_header(&pbu_bs, &pbuh_check);
-    if(OAPV_FAILED(ret)) {
-        free(frame_buffer);
-        return ret;
+    int parse_success = 0;
+
+    while(!parse_success && header_buffer_size < target_pbu_size) {
+        // Initialize bitstream for VLC parsing
+        oapv_bsr_init(&pbu_bs, frame_buffer, header_buffer_size, NULL);
+
+        // Try parsing PBU header
+        ret = oapvd_vlc_pbu_header(&pbu_bs, &pbuh_check);
+        if(OAPV_FAILED(ret)) {
+            // Check if we ran out of data (cursor near end of buffer)
+            long bytes_consumed = pbu_bs.cur - pbu_bs.beg;
+            if(bytes_consumed >= (long)(header_buffer_size * 0.9) && header_buffer_size < target_pbu_size) {
+                // Likely insufficient data - expand buffer
+                u32 new_size = header_buffer_size * 2;
+                if(new_size > target_pbu_size) new_size = target_pbu_size;
+                if(new_size > MAX_CHUNK_SIZE) new_size = MAX_CHUNK_SIZE;
+
+                u8 *new_buffer = (u8*)realloc(frame_buffer, new_size);
+                if(!new_buffer) {
+                    free(frame_buffer);
+                    return OAPV_ERR_OUT_OF_MEMORY;
+                }
+                frame_buffer = new_buffer;
+
+                // Read additional data
+                u32 additional_bytes = new_size - header_buffer_size;
+                istream->read(istream, frame_buffer + header_buffer_size, additional_bytes, 1);
+                metrics.bytes_read += additional_bytes;
+                header_buffer_size = new_size;
+                continue;
+            } else {
+                // Real parse error
+                free(frame_buffer);
+                return ret;
+            }
+        }
+
+        // Try parsing frame header
+        ret = oapvd_vlc_frame_header(&pbu_bs, &ctx->fh);
+        if(OAPV_FAILED(ret)) {
+            // Check if we ran out of data
+            long bytes_consumed = pbu_bs.cur - pbu_bs.beg;
+            if(bytes_consumed >= (long)(header_buffer_size * 0.9) && header_buffer_size < target_pbu_size) {
+                // Likely insufficient data - expand buffer
+                u32 new_size = header_buffer_size * 2;
+                if(new_size > target_pbu_size) new_size = target_pbu_size;
+                if(new_size > MAX_CHUNK_SIZE) new_size = MAX_CHUNK_SIZE;
+
+                u8 *new_buffer = (u8*)realloc(frame_buffer, new_size);
+                if(!new_buffer) {
+                    free(frame_buffer);
+                    return OAPV_ERR_OUT_OF_MEMORY;
+                }
+                frame_buffer = new_buffer;
+
+                // Read additional data
+                u32 additional_bytes = new_size - header_buffer_size;
+                istream->read(istream, frame_buffer + header_buffer_size, additional_bytes, 1);
+                metrics.bytes_read += additional_bytes;
+                header_buffer_size = new_size;
+                continue;
+            } else {
+                // Real parse error
+                free(frame_buffer);
+                return ret;
+            }
+        }
+
+        parse_success = 1; // Both headers parsed successfully
     }
 
-    // Parse frame header
-    ret = oapvd_vlc_frame_header(&pbu_bs, &ctx->fh);
-    if(OAPV_FAILED(ret)) {
+    if(!parse_success) {
         free(frame_buffer);
-        return ret;
+        return OAPV_ERR_MALFORMED_BITSTREAM;
     }
 
     // Extract frame metadata for caller
@@ -3203,15 +3274,22 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     long header_consumed = pbu_bs.cur - pbu_bs.beg;
     target_frame_data_offset = target_frame_file_pos + 4 + header_consumed;
 
-    // Initialize bitstream reader for tile data
-    oapv_bsr_init(&ctx->bs, pbu_bs.cur, pbu_bs.end - pbu_bs.cur, NULL);
+    // Phase 2: We don't have tile data in memory anymore
+    // dec_frm_prepare doesn't actually read tile data, it only sets up context
+    // So we can pass an empty bitstream
+    u8 dummy_tile_data = 0;
+    oapv_bsr_init(&ctx->bs, &dummy_tile_data, 0, NULL);
 
     ret = dec_frm_prepare(ctx, &dummy_imgb);
     if(OAPV_FAILED(ret)) {
         free(frame_buffer);
         return ret;
     }
-    
+
+    // Phase 2: Free header buffer now - we have all metadata we need
+    free(frame_buffer);
+    frame_buffer = NULL;
+
     // Calculate tile layout
     int frame_width_in_mbs = (ctx->fh.fi.frame_width + OAPV_MB_W - 1) / OAPV_MB_W;
     int tiles_per_row = (frame_width_in_mbs + ctx->fh.tile_width_in_mbs - 1) / ctx->fh.tile_width_in_mbs;
@@ -3219,7 +3297,6 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     // Allocate work queue for tiles
     tile_work_t *work_queue = (tile_work_t*)calloc(num_tiles_to_decode, sizeof(tile_work_t));
     if(!work_queue) {
-        free(frame_buffer);
         return OAPV_ERR_OUT_OF_MEMORY;
     }
 
@@ -3227,7 +3304,6 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     if(!ctx->tile_cache_valid || ctx->tile_cache_frame_offset != target_frame_data_offset) {
         ret = oapvd_build_tile_cache(ctx, target_frame_data_offset);
         if(OAPV_FAILED(ret)) {
-            free(frame_buffer);
             free(work_queue);
             return ret;
         }
@@ -3249,7 +3325,6 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         long tile_offset_abs = oapvd_get_tile_offset(ctx, tile_idx);
         if(tile_offset_abs < 0) {
             log_msg(OAPV_LOG_ERROR, "Invalid tile index %d\n", tile_idx);
-            free(frame_buffer);
             free(work_queue);
             return OAPV_ERR_INVALID_ARGUMENT;
         }
@@ -3308,7 +3383,6 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
             }
             free(read_blocks);
             free(work_queue);
-            free(frame_buffer);
             return OAPV_ERR_OUT_OF_MEMORY;
         }
     }
@@ -3327,8 +3401,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
             work_queue[tile_idx].data = read_blocks[b].buffer + tile_offset_in_block;
         }
     }
-    
-    free(frame_buffer); // No longer needed
+
     metrics.io_end_ns = get_time_ns();
     
     // Start decode timing
