@@ -131,7 +131,7 @@ struct oapv_fh {
     int       tile_width_in_mbs;            /* u(20) */
     int       tile_height_in_mbs;           /* u(20) */
     int       tile_size_present_in_fh_flag; /* u( 1) */
-    u32       tile_size[OAPV_MAX_TILES];    /* u(32) */
+    u32      *tile_size;                     /* u(32) - dynamically allocated */
     /* ( end ) tile_info  */
     // int reserved_zero_8bits_4;                   /* u( 8) */
 };
@@ -277,7 +277,7 @@ struct oapve_ctx {
 
     oapve_param_t            *param;
     oapv_fh_t                 fh;
-    oapve_tile_t              tile[OAPV_MAX_TILES];
+    oapve_tile_t             *tile;  /* dynamically allocated based on num_tiles */
     int                       num_tiles_frms[OAPV_MAX_NUM_FRAMES];
     int                       num_tiles;
     int                       num_tile_cols;
@@ -382,7 +382,7 @@ struct oapvd_ctx {
     oapv_bs_t               bs;
 
     oapv_fh_t               fh;
-    oapvd_tile_t            tile[OAPV_MAX_TILES];
+    oapvd_tile_t           *tile;  /* dynamically allocated based on num_tiles */
 
     u8                     *tile_end;
     int                     num_tiles;

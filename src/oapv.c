@@ -766,7 +766,21 @@ static void enc_flush(oapve_ctx_t *ctx)
         ctx->core[i] = NULL;
     }
 
-    oapv_mfree_fast(ctx->tile[0].bs_buf);
+    if(ctx->tile != NULL && ctx->tile[0].bs_buf != NULL) {
+        oapv_mfree_fast(ctx->tile[0].bs_buf);
+    }
+
+    // Free dynamically allocated tile array
+    if(ctx->tile != NULL) {
+        oapv_mfree_fast(ctx->tile);
+        ctx->tile = NULL;
+    }
+
+    // Free frame header tile_size array
+    if(ctx->fh.tile_size != NULL) {
+        oapv_mfree_fast(ctx->fh.tile_size);
+        ctx->fh.tile_size = NULL;
+    }
 }
 
 static int enc_ready(oapve_ctx_t *ctx)
@@ -774,6 +788,20 @@ static int enc_ready(oapve_ctx_t *ctx)
     oapve_core_t *core = NULL;
     int           ret = OAPV_OK;
     oapv_assert(ctx->core[0] == NULL);
+
+    // Allocate tile array for maximum possible tiles
+    if(ctx->tile == NULL) {
+        ctx->tile = (oapve_tile_t *)oapv_malloc_fast(OAPV_MAX_TILES * sizeof(oapve_tile_t));
+        oapv_assert_gv(ctx->tile != NULL, ret, OAPV_ERR_OUT_OF_MEMORY, ERR);
+        oapv_mset_x64a(ctx->tile, 0, OAPV_MAX_TILES * sizeof(oapve_tile_t));
+    }
+
+    // Allocate frame header tile_size array
+    if(ctx->fh.tile_size == NULL) {
+        ctx->fh.tile_size = (u32 *)oapv_malloc_fast(OAPV_MAX_TILES * sizeof(u32));
+        oapv_assert_gv(ctx->fh.tile_size != NULL, ret, OAPV_ERR_OUT_OF_MEMORY, ERR);
+        oapv_mset_x64a(ctx->fh.tile_size, 0, OAPV_MAX_TILES * sizeof(u32));
+    }
 
     ret = oapve_param_update(ctx);
     oapv_assert_g(ret == OAPV_OK, ERR);
@@ -802,6 +830,7 @@ static int enc_ready(oapve_ctx_t *ctx)
         }
     }
 
+    // Initialize all allocated tiles
     for(int i = 0; i < OAPV_MAX_TILES; i++) {
         ctx->tile[i].stat = ENC_TILE_STAT_NOT_ENCODED;
     }
@@ -1642,6 +1671,15 @@ static int dec_frm_prepare(oapvd_ctx_t *ctx, oapv_imgb_t *imgb)
     ctx->num_tiles = ctx->num_tile_cols * ctx->num_tile_rows;
 
     oapv_assert_rv((ctx->num_tile_cols <= OAPV_MAX_TILE_COLS) && (ctx->num_tile_rows <= OAPV_MAX_TILE_ROWS), OAPV_ERR_MALFORMED_BITSTREAM);
+    oapv_assert_rv(ctx->num_tiles <= OAPV_MAX_TILES, OAPV_ERR_MALFORMED_BITSTREAM);
+
+    // Allocate tile array if not already allocated
+    if(ctx->tile == NULL) {
+        ctx->tile = (oapvd_tile_t *)oapv_malloc_fast(ctx->num_tiles * sizeof(oapvd_tile_t));
+        oapv_assert_rv(ctx->tile != NULL, OAPV_ERR_OUT_OF_MEMORY);
+        oapv_mset_x64a(ctx->tile, 0, ctx->num_tiles * sizeof(oapvd_tile_t));
+    }
+
     dec_set_tile_info(ctx->tile, ctx->w, ctx->h, tile_w, tile_h, ctx->num_tile_cols, ctx->num_tiles);
 
     for(int i = 0; i < ctx->num_tiles; i++) {
@@ -1936,6 +1974,17 @@ ERR:
 
 static void dec_flush(oapvd_ctx_t *ctx)
 {
+    // Free dynamically allocated tile array
+    if(ctx->tile != NULL) {
+        oapv_mfree_fast(ctx->tile);
+        ctx->tile = NULL;
+    }
+
+    // Free frame header tile_size array
+    if(ctx->fh.tile_size != NULL) {
+        oapv_mfree_fast(ctx->fh.tile_size);
+        ctx->fh.tile_size = NULL;
+    }
     if(ctx->threads >= 2) {
         if(ctx->tpool) {
             // thread controller instance is present
