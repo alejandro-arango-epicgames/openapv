@@ -1980,6 +1980,14 @@ static void dec_flush(oapvd_ctx_t *ctx)
         ctx->tile = NULL;
     }
 
+    // Free tile offset cache
+    if(ctx->tile_offsets_cache != NULL) {
+        free(ctx->tile_offsets_cache);
+        ctx->tile_offsets_cache = NULL;
+        ctx->tile_cache_valid = 0;
+        ctx->tile_cache_num_tiles = 0;
+    }
+
     // Free frame header tile_size array
     if(ctx->fh.tile_size != NULL) {
         oapv_mfree_fast(ctx->fh.tile_size);
@@ -2349,6 +2357,54 @@ static int calculate_tile_offsets(oapv_fh_t *fh, long frame_data_start, long *ti
     return num_tiles;
 }
 
+// Build tile offset cache for the current frame
+static int oapvd_build_tile_cache(oapvd_ctx_t *ctx, long frame_data_offset)
+{
+    // Calculate number of tiles
+    int tile_w = ctx->fh.tile_width_in_mbs * OAPV_MB_W;
+    int tile_h = ctx->fh.tile_height_in_mbs * OAPV_MB_H;
+    int tiles_per_row = oapv_div_round_up(ctx->fh.fi.frame_width, tile_w);
+    int tiles_per_col = oapv_div_round_up(ctx->fh.fi.frame_height, tile_h);
+    int num_tiles = tiles_per_row * tiles_per_col;
+
+    // Allocate cache if needed or size changed
+    if(!ctx->tile_offsets_cache || ctx->tile_cache_num_tiles != num_tiles) {
+        if(ctx->tile_offsets_cache) {
+            free(ctx->tile_offsets_cache);
+        }
+        ctx->tile_offsets_cache = (long*)malloc(num_tiles * sizeof(long));
+        if(!ctx->tile_offsets_cache) {
+            return OAPV_ERR_OUT_OF_MEMORY;
+        }
+        ctx->tile_cache_num_tiles = num_tiles;
+    }
+
+    // Calculate offsets using existing function
+    calculate_tile_offsets(&ctx->fh, frame_data_offset, ctx->tile_offsets_cache);
+
+    // Mark cache as valid
+    ctx->tile_cache_valid = 1;
+    ctx->tile_cache_frame_offset = frame_data_offset;
+
+    return OAPV_OK;
+}
+
+// Invalidate tile offset cache
+static void oapvd_invalidate_tile_cache(oapvd_ctx_t *ctx)
+{
+    ctx->tile_cache_valid = 0;
+}
+
+// Get tile offset from cache (O(1) lookup)
+static long oapvd_get_tile_offset(oapvd_ctx_t *ctx, int tile_index)
+{
+    if(!ctx->tile_cache_valid || !ctx->tile_offsets_cache ||
+       tile_index < 0 || tile_index >= ctx->tile_cache_num_tiles) {
+        return -1; // Invalid cache or tile index
+    }
+    return ctx->tile_offsets_cache[tile_index];
+}
+
 // Initialize thread-local buffer manager
 static int init_tile_buffer_manager(oapv_tile_buffer_mgr_t *mgr)
 {
@@ -2604,19 +2660,31 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     // Calculate frame data start position within the target mip level frame
     // After parsing frame header, bs.cur points to start of frame data (tiles)
     long frame_data_offset_in_au = bs.cur - (u8*)bitb.addr; // Offset from AU start
-    
-    // Calculate target tile's offset in the frame data
-    long tile_offset = 0;
-    for(int i = 0; i < tile_index; i++) {
-        tile_offset += 4 + ctx->fh.tile_size[i]; // 4-byte size prefix + tile data
+    long abs_frame_data_offset = au_start_pos + frame_data_offset_in_au;
+
+    // Build tile offset cache for this frame if needed
+    if(!ctx->tile_cache_valid || ctx->tile_cache_frame_offset != abs_frame_data_offset) {
+        ret = oapvd_build_tile_cache(ctx, abs_frame_data_offset);
+        if(OAPV_FAILED(ret)) {
+            free(au_buffer);
+            return ret;
+        }
     }
-    
-    // Use tile size from header (no need for 4-byte prefix in tile data)
+
+    // Get target tile offset from cache
+    long tile_offset_abs = oapvd_get_tile_offset(ctx, tile_index);
+    if(tile_offset_abs < 0) {
+        log_msg(OAPV_LOG_ERROR, "Invalid tile index %d\n", tile_index);
+        free(au_buffer);
+        return OAPV_ERR_INVALID_ARGUMENT;
+    }
+
+    // Use tile size from header
     u32 tile_size = ctx->fh.tile_size[tile_index];
 
     // Calculate absolute file position for target tile
     // Skip the 4-byte size prefix to point to actual tile data
-    long tile_file_position = au_start_pos + frame_data_offset_in_au + tile_offset + 4;
+    long tile_file_position = tile_offset_abs + 4;
     
     // Free the full AU buffer - we don't need it anymore
     free(au_buffer);
@@ -3109,25 +3177,39 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     
     // Calculate frame data offset
     long frame_data_offset_in_au = bs.cur - (u8*)bitb.addr;
-    
-    // Fill work queue with tile information
+    long abs_frame_data_offset = au_start_pos + frame_data_offset_in_au;
+
+    // Build tile offset cache for this frame if needed
+    if(!ctx->tile_cache_valid || ctx->tile_cache_frame_offset != abs_frame_data_offset) {
+        ret = oapvd_build_tile_cache(ctx, abs_frame_data_offset);
+        if(OAPV_FAILED(ret)) {
+            free(au_buffer);
+            free(work_queue);
+            return ret;
+        }
+    }
+
+    // Fill work queue with tile information using cached offsets
     for(int i = 0; i < num_tiles_to_decode; i++) {
         int col = sel_decode->tile_coords[i * 2];
         int row = sel_decode->tile_coords[i * 2 + 1];
         int tile_idx = row * tiles_per_row + col;
-        
+
         work_queue[i].tile_idx = tile_idx;
         work_queue[i].col = col;
         work_queue[i].row = row;
         work_queue[i].size = ctx->fh.tile_size[tile_idx];
         work_queue[i].status = 0; // NOT_DECODED
-        
-        // Calculate file offset for this tile
-        long tile_offset = 0;
-        for(int j = 0; j < tile_idx; j++) {
-            tile_offset += 4 + ctx->fh.tile_size[j];
+
+        // Get tile offset from cache
+        long tile_offset_abs = oapvd_get_tile_offset(ctx, tile_idx);
+        if(tile_offset_abs < 0) {
+            log_msg(OAPV_LOG_ERROR, "Invalid tile index %d\n", tile_idx);
+            free(au_buffer);
+            free(work_queue);
+            return OAPV_ERR_INVALID_ARGUMENT;
         }
-        work_queue[i].file_offset = au_start_pos + frame_data_offset_in_au + tile_offset + 4;
+        work_queue[i].file_offset = tile_offset_abs + 4; // Skip 4-byte size prefix
     }
     
     // Sort tiles by file offset for efficient reading
