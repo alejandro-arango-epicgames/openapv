@@ -400,6 +400,12 @@ struct oapvd_ctx {
     int                     comp_sft[N_C][2]; // width or height shift value of each compoents, 0: width, 1: height
     int                     use_frm_hash;
 
+    /* Tile offset cache for optimized selective decoding */
+    long                   *tile_offsets_cache;      // Pre-calculated file offsets for all tiles
+    int                     tile_cache_valid;         // 1 if cache is valid, 0 if needs rebuild
+    long                    tile_cache_frame_offset;  // Frame data start offset for cached tiles
+    int                     tile_cache_num_tiles;    // Number of tiles in cache
+
     /* platform specific data, if needed */
     void                   *pf;
 };

@@ -902,9 +902,12 @@ int run_test_config(const char* input_file, const test_config_t* config) {
         }
         
         printf("\n--- Testing with %d thread%s ---\n", thread_count, (thread_count > 1) ? "s" : "");
-        
+
+        // Reset stat for actual decode (metadata call already updated it)
+        stat.read = 0;
+
         clock_t start_time = clock();
-        
+
         // Run the decode
         if (config->test_type == TEST_SINGLE_TILE) {
             ret = oapvd_decode_selective(decoder_id, &istream, &sel_decode, 0, &stat);
