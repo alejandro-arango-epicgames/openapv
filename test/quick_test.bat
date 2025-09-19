@@ -25,8 +25,8 @@ if errorlevel 1 (
 
 REM Run the quick tests
 
-set TEST=16k_all_tiles_performance
-set FRAME=media\koala_16k_tiled\koala_16k_tiled_0000.apv1
+set TEST=multi_all_mip1
+set FRAME=media\koala_tiled\koala_tiled_0000.apv1
 
 echo Running %TEST% test...
 ..\build\Release\decoder_test.exe %FRAME% %TEST%

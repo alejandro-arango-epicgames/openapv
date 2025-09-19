@@ -3045,7 +3045,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     u8 size_buf[4];
     istream->read(istream, size_buf, 4, 1);
     u32 au_size = (size_buf[0] << 24) | (size_buf[1] << 16) | (size_buf[2] << 8) | size_buf[3];
-    stat->read += 4;
+    metrics.bytes_read += 4;
     
     long au_start_pos = istream->tell(istream);
     
@@ -3271,6 +3271,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
 
     if(sel_decode->output_buffer == NULL) {
         free(frame_buffer);
+        stat->read = metrics.bytes_read;  // Update stat even for metadata-only calls
         return OAPV_OK;
     }
 
@@ -3508,7 +3509,10 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     log_msg(OAPV_LOG_INFO, "  Bytes read: %u\n", metrics.bytes_read);
     log_msg(OAPV_LOG_INFO, "  Tiles decoded: %u\n", metrics.tiles_decoded);
     log_msg(OAPV_LOG_INFO, "  Throughput: %.2f tiles/sec\n", metrics.tiles_decoded * 1000.0 / total_time_ms);
-    
+
+    // Update stat with actual bytes read
+    stat->read = metrics.bytes_read;
+
     return ret;
 }
 
