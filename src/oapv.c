@@ -3084,10 +3084,10 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
                          (pbu_size_buf[2] << 8) | pbu_size_buf[3];
         metrics.bytes_read += 4;
 
-        // Read PBU header (8 bytes)
-        u8 pbu_header_buf[8];
-        istream->read(istream, pbu_header_buf, 8, 1);
-        metrics.bytes_read += 8;
+        // Read PBU header (4 bytes)
+        u8 pbu_header_buf[4];
+        istream->read(istream, pbu_header_buf, 4, 1);
+        metrics.bytes_read += 4;
 
         // Allocate header buffer: start small, expand if needed during parsing
         header_buffer_size = (target_pbu_size < INITIAL_HEADER_CHUNK) ? target_pbu_size : INITIAL_HEADER_CHUNK;
@@ -3097,9 +3097,9 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         }
 
         // Copy PBU header and read frame header data
-        memcpy(frame_buffer, pbu_header_buf, 8);
-        u32 remaining_to_read = header_buffer_size - 8;
-        istream->read(istream, frame_buffer + 8, remaining_to_read, 1);
+        memcpy(frame_buffer, pbu_header_buf, 4);
+        u32 remaining_to_read = header_buffer_size - 4;
+        istream->read(istream, frame_buffer + 4, remaining_to_read, 1);
         metrics.bytes_read += remaining_to_read;
 
     } else {
@@ -3121,12 +3121,12 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         }
         metrics.bytes_read += 4;
 
-            // Read and parse PBU header
-            u8 pbu_header_buf[8];
-            istream->read(istream, pbu_header_buf, 8, 1);
-            metrics.bytes_read += 8;
+            // Read and parse PBU header (4 bytes)
+            u8 pbu_header_buf[4];
+            istream->read(istream, pbu_header_buf, 4, 1);
+            metrics.bytes_read += 4;
         oapv_bs_t pbu_header_bs;
-        oapv_bsr_init(&pbu_header_bs, pbu_header_buf, 8, NULL);
+        oapv_bsr_init(&pbu_header_bs, pbu_header_buf, 4, NULL);
 
         oapv_pbuh_t pbuh;
         ret = oapvd_vlc_pbu_header(&pbu_header_bs, &pbuh);
@@ -3150,9 +3150,15 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
                 }
 
                 // Copy PBU header and read frame header data
-                memcpy(frame_buffer, pbu_header_buf, 8);
-                u32 remaining_to_read = header_buffer_size - 8;
-                istream->read(istream, frame_buffer + 8, remaining_to_read, 1);
+                memcpy(frame_buffer, pbu_header_buf, 4);
+                u32 remaining_to_read = header_buffer_size - 4;
+
+                // Make sure not to read past the PBU.
+                if (remaining_to_read > pbu_size - 4) {
+                    remaining_to_read = pbu_size - 4;
+                }
+
+                istream->read(istream, frame_buffer + 4, remaining_to_read, 1);
                 metrics.bytes_read += remaining_to_read;
                 break;
             } else {
@@ -3185,7 +3191,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     oapv_pbuh_t pbuh_check;
     int parse_success = 0;
 
-    while(!parse_success && header_buffer_size < target_pbu_size) {
+    while(!parse_success && header_buffer_size <= target_pbu_size) {
         // Initialize bitstream for VLC parsing
         oapv_bsr_init(&pbu_bs, frame_buffer, header_buffer_size, NULL);
 
