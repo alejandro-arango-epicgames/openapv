@@ -869,8 +869,13 @@ int main(int argc, const char **argv)
     if(args_var->tmv_mips) {
         for(int mip_idx = 0, w = param->w / 2, h = param->h / 2;; mip_idx++) {
 
-            if(cfmt == OAPV_CF_YCBCR422 && w & 0x1) {
-                logerr("ERR: can't generate mip that is not multiple of two (YUV 422 constraint).");
+            if((cfmt == OAPV_CF_YCBCR422 || cfmt == OAPV_CF_YCBCR420) && (w & 0x1)) {
+                logerr("ERR: Can't generate mip of width %d. Not multiple of two (YUV 422/420 constraint).\n", w);
+                break;
+            }
+
+            if(cfmt == OAPV_CF_YCBCR420 && (h & 0x1)) {
+                logerr("ERR: Can't generate mip of heigth %d. Not multiple of two (YUV 420 constraint).\n", h);
                 break;
             }
 
