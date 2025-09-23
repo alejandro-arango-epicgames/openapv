@@ -268,7 +268,7 @@ static test_config_t test_configs[] = {
     },
     {
         .name = "multi_all_mip5",
-        .description = "Single tile from mip level 4 (240x135)",
+        .description = "Single tile from mip level 5 (120x67)",
         .test_type = TEST_MULTI_TILE,
         .mip_level = 5,
         .tile_coords = {
@@ -281,7 +281,7 @@ static test_config_t test_configs[] = {
     },
     {
         .name = "multi_all_mip6",
-        .description = "Single tile from mip level 4 (240x135)",
+        .description = "Single tile from mip level 6 (60x33)",
         .test_type = TEST_MULTI_TILE,
         .mip_level = 6,
         .tile_coords = {
@@ -294,7 +294,7 @@ static test_config_t test_configs[] = {
     },
     {
         .name = "multi_all_mip7",
-        .description = "Single tile from mip level 4 (240x135)",
+        .description = "Single tile from mip level 7 (30x16)",
         .test_type = TEST_MULTI_TILE,
         .mip_level = 7,
         .tile_coords = {
@@ -814,6 +814,154 @@ void file_istream_init(oapvd_istream_t* istream, FILE* fp)
     istream->read = file_istream_read;
 }
 
+// Decode a full frame (all tiles) with a pre-existing decoder.
+static int decode_mip(const char* input_file, int mip_level, oapvd_t decoder_id)
+{
+    // The input file contains one input frame and a mip level to load per line.
+    FILE *fp = fopen(input_file, "rb");
+    if(!fp) {
+        printf("ERROR: Cannot open input file %s\n", input_file);
+        return -1;
+    }
+
+    // Set up selective decode structure on the heap (to test this because that's how it is done in UE).
+    oapv_selective_decode_t *sel_decode = malloc(sizeof(oapv_selective_decode_t));
+    if (sel_decode == NULL)
+    {
+        printf("ERROR: Failed to allocate memory for sel_decode\n");
+        fclose(fp);
+        return -1;
+    }
+
+    memset(sel_decode, 0, sizeof(oapv_selective_decode_t));
+
+    // Select just one tile of the specified mip for now. We want to read the frame and tile size first. 
+    sel_decode->mip_level = mip_level;
+    sel_decode->num_tiles = 1;
+    sel_decode->tile_coords[0] = sel_decode->tile_coords[1] = 0;
+
+    oapvd_stat_t stat = { 0 };
+
+    oapvd_istream_t istream;
+    file_istream_init(&istream, fp);
+
+    // Get frame and tile sizes.
+    int ret = oapvd_decode_selective_multi(decoder_id, &istream, sel_decode, 0, &stat);
+
+    if(OAPV_FAILED(ret)) {
+        printf("ERROR: Failed to get metadata (return code: %d)\n", ret);
+        oapvd_delete(decoder_id);
+        fclose(fp);
+        free(sel_decode);
+        return -1;
+    }
+
+    printf("Frame: %dx%d, Tile size: %dx%d\n",
+           sel_decode->actual_frame_width, sel_decode->actual_frame_height,
+           sel_decode->actual_tile_width, sel_decode->actual_tile_height);
+
+    // Create output buffers if needed
+    oapv_imgb_t *frame_buffer = create_frame_buffer(sel_decode->actual_frame_width, sel_decode->actual_frame_height, 3, sel_decode->bit_depth);
+
+    if(!frame_buffer) {
+        printf("ERROR: Failed to allocate frame buffers\n");
+        fclose(fp);
+        free(sel_decode);
+        return -1;
+    }
+
+    sel_decode->output_buffer = frame_buffer;
+
+    // List all tile coords for this mip.
+    int num_tile_col = (sel_decode->actual_frame_width + sel_decode->actual_tile_width - 1) / sel_decode->actual_tile_width;
+    int num_tile_row = (sel_decode->actual_frame_height + sel_decode->actual_tile_height - 1) / sel_decode->actual_tile_height;
+    int num_tiles = num_tile_col * num_tile_row;
+    sel_decode->num_tiles = num_tiles;
+    for(int j = 0; j < num_tile_row; j++) {
+        for(int i = 0; i < num_tile_col; i++) {
+            int tile_idx = j * num_tile_col + i;
+            sel_decode->tile_coords[tile_idx * 2] = i;
+            sel_decode->tile_coords[tile_idx * 2 + 1] = j;
+        }
+    }
+
+    // Reset stat for actual decode (metadata call already updated it)
+    stat.read = 0;
+
+    clock_t start_time = clock();
+
+    // Run the decode
+    ret = oapvd_decode_selective_multi(decoder_id, &istream, sel_decode, 0, &stat);
+
+    clock_t end_time = clock();
+
+    if(OAPV_SUCCEEDED(ret)) {
+        printf("SUCCESS: Decode completed\n");
+
+        // Validation
+        if(frame_buffer) {
+           validate_quick(frame_buffer, num_tiles);
+        }
+    }
+    else {
+        printf("ERROR: Decode failed (return code: %d)\n", ret);
+    }
+
+    delete_frame_buffer(frame_buffer);
+    free(sel_decode);
+    fclose(fp);
+    return 0;
+}
+
+// Decode multiple frames consecutively with the same decoder context.
+// This is making sure no internal data from one frame interferes with decoding the next frame.
+int run_multiframe_test(const char* framelist_file, int num_threads)
+{
+    printf("\n=== Test: Multi-frame ===\n");
+    printf("Description: Decoding multiple consecutive frames to test decoder context.\n");
+
+    // The input file contains one input frame and a mip level to load per line.
+    FILE *fp = fopen(framelist_file, "rt");
+    if(!fp) {
+        printf("ERROR: Cannot open input file %s\n", framelist_file);
+        return -1;
+    }
+
+    // Create initial decoder for metadata
+    oapvd_cdesc_t cdesc = { 0 };
+    cdesc.threads = num_threads;
+    int err;
+
+    oapvd_t decoder_id = oapvd_create(&cdesc, &err);
+    if(decoder_id == NULL) {
+        printf("ERROR: Failed to create decoder (error code: %d)\n", err);
+        fclose(fp);
+        return -1;
+    }
+
+    // Load the list of files.
+    char buffer[1024];
+    char input_file[1024];
+    int  mip = 0;
+
+    while(fgets(buffer, 1024, fp) != NULL) {        
+        if(sscanf(buffer, "%s %d", input_file, &mip) == 2) {
+            printf("Decoding Mip %d of %s\n", mip, input_file);
+            decode_mip(input_file, mip, decoder_id);
+        }
+        else
+        {
+            printf("Error parsing frame list file. Expected format: filename mip_level\n");
+        }
+    }
+
+    // Cleanup    
+    oapvd_delete(decoder_id);
+    fclose(fp);
+
+    return 0;
+}
+
 // Run a single test configuration
 int run_test_config(const char* input_file, const test_config_t* config) {
     printf("\n=== Test: %s ===\n", config->name);
@@ -1010,6 +1158,16 @@ void print_available_tests() {
     }
 }
 
+const char *get_file_extension(const char *filename)
+{
+    const char *dot = strrchr(filename, '.');
+    if(!dot || dot == filename) { // No dot found, or dot is the first character (e.g., ".bashrc")
+        return "";                // No extension
+    }
+
+    return dot + 1; // Return pointer to the character after the dot
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         printf("Usage: %s <apv_file> [test_number|test_name|all]\n", argv[0]);
@@ -1025,11 +1183,17 @@ int main(int argc, char* argv[]) {
     
     const char* input_file = argv[1];
     const char* test_selector = (argc >= 3) ? argv[2] : "all";
-    
+
     printf("Decoder Test\n");
     printf("Input: %s\n", input_file);
     printf("Test selector: %s\n", test_selector);
-    
+
+    // Multi-frame test with a file containing a list of frames.
+    if(strcmp(get_file_extension(input_file), "txt") == 0) {
+        run_multiframe_test(input_file, 16);
+        return 0;
+    }
+
     if (strcmp(test_selector, "all") == 0) {
         // Run all tests
         printf("\nRunning all %d test configurations...\n", num_test_configs);
