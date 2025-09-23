@@ -3029,6 +3029,8 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     
     ctx = dec_id_to_ctx(did);
     oapv_assert_rv(ctx, OAPV_ERR_INVALID_ARGUMENT);
+
+    oapvd_invalidate_tile_cache(ctx);   // make sure the tile cache is rebuilt.
     
     // Start I/O timing
     metrics.io_start_ns = get_time_ns();
