@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include "../../inc/oapv.h"
+#include "../../src/oapv_port.h"
 
 // defined in oapv_app_util.h
 #define ALIGN_VAL(val, align) ((((val) + (align) - 1) / (align)) * (align))
@@ -576,17 +577,17 @@ void delete_frame_buffer(oapv_imgb_t* imgb)
     if(imgb) {
         for(int c = 0; c < imgb->np; ++c) {
             if(imgb->a[c]) {
-                free(imgb->a[c]);
+                oapv_mfree(imgb->a[c]);
             }
         }
 
-        free(imgb);
+        oapv_mfree(imgb);
     }
 }
 
 // Create frame buffer for specific component
 oapv_imgb_t* create_frame_buffer(int width, int height, int num_components, int bit_depth) {
-    oapv_imgb_t *imgb = malloc(sizeof(oapv_imgb_t));
+    oapv_imgb_t *imgb = oapv_malloc(sizeof(oapv_imgb_t));
     if (!imgb) return NULL;
     
     memset(imgb, 0, sizeof(oapv_imgb_t));
@@ -612,7 +613,7 @@ oapv_imgb_t* create_frame_buffer(int width, int height, int num_components, int 
         imgb->e[c] = imgb->ah[c];
 
         imgb->bsize[c] = imgb->s[c] * imgb->e[c];
-        imgb->a[c] = imgb->baddr[c] = calloc(imgb->bsize[c], 1);
+        imgb->a[c] = imgb->baddr[c] = oapv_calloc(imgb->bsize[c], 1);
         if(!imgb->a[c]) {
             delete_frame_buffer(imgb);
             return NULL;
@@ -825,7 +826,7 @@ static int decode_mip(const char* input_file, int mip_level, oapvd_t decoder_id)
     }
 
     // Set up selective decode structure on the heap (to test this because that's how it is done in UE).
-    oapv_selective_decode_t *sel_decode = malloc(sizeof(oapv_selective_decode_t));
+    oapv_selective_decode_t *sel_decode = oapv_malloc(sizeof(oapv_selective_decode_t));
     if (sel_decode == NULL)
     {
         printf("ERROR: Failed to allocate memory for sel_decode\n");
@@ -852,7 +853,7 @@ static int decode_mip(const char* input_file, int mip_level, oapvd_t decoder_id)
         printf("ERROR: Failed to get metadata (return code: %d)\n", ret);
         oapvd_delete(decoder_id);
         fclose(fp);
-        free(sel_decode);
+        oapv_mfree(sel_decode);
         return -1;
     }
 
@@ -866,7 +867,7 @@ static int decode_mip(const char* input_file, int mip_level, oapvd_t decoder_id)
     if(!frame_buffer) {
         printf("ERROR: Failed to allocate frame buffers\n");
         fclose(fp);
-        free(sel_decode);
+        oapv_mfree(sel_decode);
         return -1;
     }
 
@@ -908,7 +909,7 @@ static int decode_mip(const char* input_file, int mip_level, oapvd_t decoder_id)
     }
 
     delete_frame_buffer(frame_buffer);
-    free(sel_decode);
+    oapv_mfree(sel_decode);
     fclose(fp);
     return 0;
 }
