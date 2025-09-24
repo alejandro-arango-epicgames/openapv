@@ -156,13 +156,21 @@ void oapv_trace_line(char *pre);
 /*****************************************************************************
  * memory operations
  *****************************************************************************/
-#define oapv_malloc(size)      malloc((size))
+void *oapv_internal_malloc(size_t size);
+void *oapv_internal_calloc(size_t count, size_t size);
+void *oapv_internal_realloc(void* block, size_t size);
+void oapv_internal_free(void* block);
+
+#define oapv_malloc(size)      oapv_internal_malloc((size))
 #define oapv_malloc_fast(size) oapv_malloc((size))
+
+#define oapv_calloc(count, size)      oapv_internal_calloc((count), (size))
+#define oapv_realloc(block, size) oapv_internal_realloc((block), (size))
 
 #define oapv_mfree(m) \
     {                 \
         if(m) {       \
-            free(m);  \
+            oapv_internal_free(m);  \
         }             \
     }
 #define oapv_mfree_fast(m) \

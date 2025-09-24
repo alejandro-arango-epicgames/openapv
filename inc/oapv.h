@@ -69,6 +69,7 @@ extern "C" {
 /* TMV specific APIs */
 #define OAPV_HAS_SELECTIVE_DECODE_API   1
 #define OAPV_HAS_LOGGING_API            1
+#define OAPV_HAS_MEMORY_API             1
 
 /* size of macroblock */
 #define OAPV_LOG2_MB                    (4)
@@ -284,6 +285,17 @@ extern "C" {
  * logging callback (note: handlers must be thread safe)
  *****************************************************************************/
 typedef void (*oapv_log_callback_t)(const char *message, int verbosity, void *userdata);
+
+/*****************************************************************************
+ * memory callbacks
+ *****************************************************************************/
+typedef struct oapv_memory_callbacks oapv_memory_callbacks_t;
+struct oapv_memory_callbacks {
+    void *(*malloc)(size_t size);
+    void *(*calloc)(size_t count, size_t size);
+    void *(*realloc)(void *block, size_t size);
+    void (*free)(void *block);
+};
 
 /*****************************************************************************
  * type and macro for media time
@@ -753,6 +765,11 @@ OAPV_EXPORT int oapve_family_bitrate(int family, int w, int h, int fps_num, int 
  *****************************************************************************/
 OAPV_EXPORT void oapv_set_logging_callback(oapv_log_callback_t callback, void *userdata);
 OAPV_EXPORT void oapv_set_logging_verbosity(int verbosity);
+
+/*****************************************************************************
+ * openapv memory callbacks
+ *****************************************************************************/
+OAPV_EXPORT int oapv_set_memory_callbacks(const oapv_memory_callbacks_t* callbacks);
 
 /*****************************************************************************
  * openapv version

@@ -1982,7 +1982,7 @@ static void dec_flush(oapvd_ctx_t *ctx)
 
     // Free tile offset cache
     if(ctx->tile_offsets_cache != NULL) {
-        free(ctx->tile_offsets_cache);
+        oapv_mfree(ctx->tile_offsets_cache);
         ctx->tile_offsets_cache = NULL;
         ctx->tile_cache_valid = 0;
         ctx->tile_cache_num_tiles = 0;
@@ -2370,9 +2370,9 @@ static int oapvd_build_tile_cache(oapvd_ctx_t *ctx, long frame_data_offset)
     // Allocate cache if needed or size changed
     if(!ctx->tile_offsets_cache || ctx->tile_cache_num_tiles != num_tiles) {
         if(ctx->tile_offsets_cache) {
-            free(ctx->tile_offsets_cache);
+            oapv_mfree(ctx->tile_offsets_cache);
         }
-        ctx->tile_offsets_cache = (long*)malloc(num_tiles * sizeof(long));
+        ctx->tile_offsets_cache = (long*)oapv_malloc(num_tiles * sizeof(long));
         if(!ctx->tile_offsets_cache) {
             return OAPV_ERR_OUT_OF_MEMORY;
         }
@@ -2418,7 +2418,7 @@ static int init_tile_buffer_manager(oapv_tile_buffer_mgr_t *mgr)
     // Allocate buffers for each thread
     for(int thread_id = 0; thread_id < OAPV_MAX_THREADS; thread_id++) {
         for(int i = 0; i < 4; i++) {
-            mgr->fast_buffers[thread_id][i] = (u8*)malloc(mgr->fast_buffer_sizes[i]);
+            mgr->fast_buffers[thread_id][i] = (u8 *)oapv_malloc(mgr->fast_buffer_sizes[i]);
             if(!mgr->fast_buffers[thread_id][i]) {
                 return OAPV_ERR_OUT_OF_MEMORY;
             }
@@ -2444,14 +2444,14 @@ static u8* get_tile_buffer(oapv_tile_buffer_mgr_t *mgr, int thread_id, u32 neede
     
     // Fallback: malloc for large tiles
     *buffer_type = -1; // Indicates malloc'd buffer
-    return (u8*)malloc(needed_size);
+    return (u8 *)oapv_malloc(needed_size);
 }
 
 // Return buffer (only needed for malloc'd buffers)
 static void return_tile_buffer(oapv_tile_buffer_mgr_t *mgr, u8 *buffer, int buffer_type)
 {
     if(buffer_type == -1) { // malloc'd buffer
-        free(buffer);
+        oapv_mfree(buffer);
     }
     // Thread-local buffers don't need explicit return
 }
@@ -2463,7 +2463,7 @@ static int create_tile_views(oapv_imgb_t *output_buffers[4], int tile_col, int t
     for(int c = 0; c < 4; c++) {
         if(!output_buffers[c]) continue;
         
-        views[c] = (oapv_imgb_t*)malloc(sizeof(oapv_imgb_t));
+        views[c] = (oapv_imgb_t *)oapv_malloc(sizeof(oapv_imgb_t));
         if(!views[c]) return OAPV_ERR_OUT_OF_MEMORY;
         
         // Copy buffer properties  
@@ -2504,7 +2504,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     // Then we'll seek back and read only the target tile data
     long au_start_pos = istream->tell(istream);
     
-    u8 *au_buffer = (u8*)malloc(au_size);
+    u8  *au_buffer = (u8 *)oapv_malloc(au_size);
     if(!au_buffer) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
@@ -2519,7 +2519,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     u32 signature = oapv_bsr_read_direct(bitb.addr, 32);
     if(signature != 0x61507631) { // 'aPv1' expected by normal decoder
         log_msg(OAPV_LOG_ERROR, "Invalid signature: 0x%08X (expected aPv1)\n", signature);
-        free(au_buffer);
+        oapv_mfree(au_buffer);
         return OAPV_ERR_MALFORMED_BITSTREAM;
     }
     
@@ -2533,7 +2533,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
         u32 remain = bitb.ssize - cur_read_size;
         if(remain < 8) {
             log_msg(OAPV_LOG_ERROR, "Not enough data for PBU header at pos %d\n", cur_read_size);
-            free(au_buffer);
+            oapv_mfree(au_buffer);
             return OAPV_ERR_MALFORMED_BITSTREAM;
         }
         
@@ -2545,7 +2545,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
         ret = oapvd_vlc_pbu_size(&bs, &pbu_size);
         if(OAPV_FAILED(ret)) {
             log_msg(OAPV_LOG_ERROR, "Failed to parse PBU size for frame %d: %d\n", current_frame, ret);
-            free(au_buffer);
+            oapv_mfree(au_buffer);
             return ret;
         }
         
@@ -2553,7 +2553,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
         remain -= 4; // 4 bytes consumed for pbu_size
         if(pbu_size > remain) {
             log_msg(OAPV_LOG_ERROR, "PBU size %d exceeds remaining data %d at pos %d\n", pbu_size, remain, cur_read_size);
-            free(au_buffer);
+            oapv_mfree(au_buffer);
             return OAPV_ERR_MALFORMED_BITSTREAM;
         }
         
@@ -2562,7 +2562,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
         ret = oapvd_vlc_pbu_header(&bs, &pbuh);
         if(OAPV_FAILED(ret)) {
             log_msg(OAPV_LOG_ERROR, "Failed to parse PBU header for frame %d: %d\n", current_frame, ret);
-            free(au_buffer);
+            oapv_mfree(au_buffer);
             return ret;
         }
         
@@ -2575,7 +2575,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
                 ret = oapvd_vlc_frame_header(&bs, &ctx->fh);
                 if(OAPV_FAILED(ret)) {
                     log_msg(OAPV_LOG_ERROR, "Failed to parse frame header for mip %d: %d\n", target_mip_level, ret);
-                    free(au_buffer);
+                    oapv_mfree(au_buffer);
                     return ret;
                 }
                 
@@ -2593,7 +2593,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
 
                 // Check if this is a metadata-only call (no output buffers provided)
                 if(sel_decode->output_buffer == NULL) {
-                    free(au_buffer);
+                    oapv_mfree(au_buffer);
                     return OAPV_OK;
                 }
                 break; // Exit the loop - we found our target
@@ -2608,7 +2608,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     
     if(current_frame != target_mip_level) {
         log_msg(OAPV_LOG_ERROR, "Could not find mip level %d (only found %d frames)\n", target_mip_level, current_frame);
-        free(au_buffer);
+        oapv_mfree(au_buffer);
         return OAPV_ERR_INVALID_ARGUMENT;
     }
     
@@ -2630,7 +2630,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
 
     if(OAPV_FAILED(ret)) {
         log_msg(OAPV_LOG_ERROR, "Failed to prepare frame context: %d\n", ret);
-        free(au_buffer);
+        oapv_mfree(au_buffer);
         return ret;
     }
 
@@ -2666,7 +2666,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     if(!ctx->tile_cache_valid || ctx->tile_cache_frame_offset != abs_frame_data_offset) {
         ret = oapvd_build_tile_cache(ctx, abs_frame_data_offset);
         if(OAPV_FAILED(ret)) {
-            free(au_buffer);
+            oapv_mfree(au_buffer);
             return ret;
         }
     }
@@ -2675,7 +2675,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     long tile_offset_abs = oapvd_get_tile_offset(ctx, tile_index);
     if(tile_offset_abs < 0) {
         log_msg(OAPV_LOG_ERROR, "Invalid tile index %d\n", tile_index);
-        free(au_buffer);
+        oapv_mfree(au_buffer);
         return OAPV_ERR_INVALID_ARGUMENT;
     }
 
@@ -2687,13 +2687,13 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     long tile_file_position = tile_offset_abs + 4;
     
     // Free the full AU buffer - we don't need it anymore
-    free(au_buffer);
+    oapv_mfree(au_buffer);
     au_buffer = NULL;
     
     // Seek to target tile position in file and read only that tile's data
     istream->seek(istream, tile_file_position, SEEK_SET);
     
-    u8 *tile_data = (u8*)malloc(tile_size);
+    u8 *tile_data = (u8 *)oapv_malloc(tile_size);
     if(!tile_data) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
@@ -2701,7 +2701,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     size_t bytes_read = istream->read(istream, tile_data, 1, tile_size);
     if(bytes_read != tile_size) {
         log_msg(OAPV_LOG_ERROR, "Failed to read tile data - expected %u bytes, got %zu bytes\n", tile_size, bytes_read);
-        free(tile_data);
+        oapv_mfree(tile_data);
         return OAPV_ERR_MALFORMED_BITSTREAM;
     }
     
@@ -2728,7 +2728,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
         ret = oapvd_vlc_tile_header(&tile_bs, ctx, &tile.th);
         if(OAPV_FAILED(ret)) {
             log_msg(OAPV_LOG_ERROR, "Failed to parse tile header: %d\n", ret);
-            free(tile_data);
+            oapv_mfree(tile_data);
             return ret;
         }
 
@@ -2814,7 +2814,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
             }
         }
     
-    free(tile_data);
+    oapv_mfree(tile_data);
     return ret;
 }
 
@@ -3091,7 +3091,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
 
         // Allocate header buffer: start small, expand if needed during parsing
         header_buffer_size = (target_pbu_size < INITIAL_HEADER_CHUNK) ? target_pbu_size : INITIAL_HEADER_CHUNK;
-        frame_buffer = (u8*)malloc(header_buffer_size);
+        frame_buffer = (u8 *)oapv_malloc(header_buffer_size);
         if(!frame_buffer) {
             return OAPV_ERR_OUT_OF_MEMORY;
         }
@@ -3144,7 +3144,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
 
                 // Allocate header buffer for target frame
                 header_buffer_size = (pbu_size < INITIAL_HEADER_CHUNK) ? pbu_size : INITIAL_HEADER_CHUNK;
-                frame_buffer = (u8*)malloc(header_buffer_size);
+                frame_buffer = (u8 *)oapv_malloc(header_buffer_size);
                 if(!frame_buffer) {
                     return OAPV_ERR_OUT_OF_MEMORY;
                 }
@@ -3206,9 +3206,9 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
                 if(new_size > target_pbu_size) new_size = target_pbu_size;
                 if(new_size > MAX_HEADER_CHUNK) new_size = MAX_HEADER_CHUNK;
 
-                u8 *new_buffer = (u8*)realloc(frame_buffer, new_size);
+                u8 *new_buffer = (u8 *)oapv_realloc(frame_buffer, new_size);
                 if(!new_buffer) {
-                    free(frame_buffer);
+                    oapv_mfree(frame_buffer);
                     return OAPV_ERR_OUT_OF_MEMORY;
                 }
                 frame_buffer = new_buffer;
@@ -3223,7 +3223,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
                 continue;
             } else {
                 // Real parse error
-                free(frame_buffer);
+                oapv_mfree(frame_buffer);
                 return ret;
             }
         }
@@ -3239,9 +3239,9 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
                 if(new_size > target_pbu_size) new_size = target_pbu_size;
                 if(new_size > MAX_HEADER_CHUNK) new_size = MAX_HEADER_CHUNK;
 
-                u8 *new_buffer = (u8*)realloc(frame_buffer, new_size);
+                u8 *new_buffer = (u8 *)oapv_realloc(frame_buffer, new_size);
                 if(!new_buffer) {
-                    free(frame_buffer);
+                    oapv_mfree(frame_buffer);
                     return OAPV_ERR_OUT_OF_MEMORY;
                 }
                 frame_buffer = new_buffer;
@@ -3256,7 +3256,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
                 continue;
             } else {
                 // Real parse error
-                free(frame_buffer);
+                oapv_mfree(frame_buffer);
                 return ret;
             }
         }
@@ -3265,7 +3265,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     }
 
     if(!parse_success) {
-        free(frame_buffer);
+        oapv_mfree(frame_buffer);
         return OAPV_ERR_MALFORMED_BITSTREAM;
     }
 
@@ -3278,7 +3278,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     sel_decode->chroma_format = ctx->fh.fi.chroma_format_idc;
 
     if(sel_decode->output_buffer == NULL) {
-        free(frame_buffer);
+        oapv_mfree(frame_buffer);
         stat->read = metrics.bytes_read;  // Update stat even for metadata-only calls
         return OAPV_OK;
     }
@@ -3293,12 +3293,12 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
 
     ret = dec_frm_prepare(ctx, &dummy_imgb);
     if(OAPV_FAILED(ret)) {
-        free(frame_buffer);
+        oapv_mfree(frame_buffer);
         return ret;
     }
 
     // Free header buffer - all metadata extracted to ctx->fh
-    free(frame_buffer);
+    oapv_mfree(frame_buffer);
     frame_buffer = NULL;
 
     // Calculate tile layout
@@ -3306,7 +3306,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     int tiles_per_row = (frame_width_in_mbs + ctx->fh.tile_width_in_mbs - 1) / ctx->fh.tile_width_in_mbs;
     
     // Allocate work queue for tiles
-    tile_work_t *work_queue = (tile_work_t*)calloc(num_tiles_to_decode, sizeof(tile_work_t));
+    tile_work_t *work_queue = (tile_work_t *)oapv_calloc(num_tiles_to_decode, sizeof(tile_work_t));
     if(!work_queue) {
         return OAPV_ERR_OUT_OF_MEMORY;
     }
@@ -3315,7 +3315,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     if(!ctx->tile_cache_valid || ctx->tile_cache_frame_offset != target_frame_data_offset) {
         ret = oapvd_build_tile_cache(ctx, target_frame_data_offset);
         if(OAPV_FAILED(ret)) {
-            free(work_queue);
+            oapv_mfree(work_queue);
             return ret;
         }
     }
@@ -3336,7 +3336,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         long tile_offset_abs = oapvd_get_tile_offset(ctx, tile_idx);
         if(tile_offset_abs < 0) {
             log_msg(OAPV_LOG_ERROR, "Invalid tile index %d\n", tile_idx);
-            free(work_queue);
+            oapv_mfree(work_queue);
             return OAPV_ERR_INVALID_ARGUMENT;
         }
         work_queue[i].file_offset = tile_offset_abs + 4; // Skip 4-byte size prefix
@@ -3355,7 +3355,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     
     // Coalesce contiguous tiles into read blocks
     const u64 COALESCE_THRESHOLD = 4096; // 4KB gap threshold
-    tile_read_block_t *read_blocks = (tile_read_block_t*)calloc(num_tiles_to_decode, sizeof(tile_read_block_t));
+    tile_read_block_t *read_blocks = (tile_read_block_t*)oapv_calloc(num_tiles_to_decode, sizeof(tile_read_block_t));
     int num_blocks = 0;
     
     // Initialize first block
@@ -3386,14 +3386,14 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     // Calculate total sizes and allocate buffers
     for(int b = 0; b < num_blocks; b++) {
         read_blocks[b].total_size = (u32)(read_blocks[b].end_offset - read_blocks[b].start_offset);
-        read_blocks[b].buffer = (u8*)malloc(read_blocks[b].total_size);
+        read_blocks[b].buffer = (u8 *)oapv_malloc(read_blocks[b].total_size);
         if(!read_blocks[b].buffer) {
             // Clean up
             for(int j = 0; j < b; j++) {
-                free(read_blocks[j].buffer);
+                oapv_mfree(read_blocks[j].buffer);
             }
-            free(read_blocks);
-            free(work_queue);
+            oapv_mfree(read_blocks);
+            oapv_mfree(work_queue);
             return OAPV_ERR_OUT_OF_MEMORY;
         }
     }
@@ -3444,32 +3444,32 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         oapv_tpool_t *tpool = ctx->tpool;
         
         // Create worker threads with heap-allocated arguments
-        multi_tile_worker_t **thread_workers = (multi_tile_worker_t**)malloc((num_threads - 1) * sizeof(multi_tile_worker_t*));
+        multi_tile_worker_t **thread_workers = (multi_tile_worker_t **)oapv_malloc((num_threads - 1) * sizeof(multi_tile_worker_t *));
         if(!thread_workers) {
             // Clean up and return error
             oapv_tpool_sync_obj_delete(&sync_obj);
             for(int b = 0; b < num_blocks; b++) {
-                free(read_blocks[b].buffer);
+                oapv_mfree(read_blocks[b].buffer);
             }
-            free(read_blocks);
-            free(work_queue);
+            oapv_mfree(read_blocks);
+            oapv_mfree(work_queue);
             return OAPV_ERR_OUT_OF_MEMORY;
         }
 
         for(int t = 0; t < num_threads - 1; t++) {
-            thread_workers[t] = (multi_tile_worker_t*)malloc(sizeof(multi_tile_worker_t));
+            thread_workers[t] = (multi_tile_worker_t *)oapv_malloc(sizeof(multi_tile_worker_t));
             if(!thread_workers[t]) {
                 // Clean up previously allocated workers
                 for(int j = 0; j < t; j++) {
-                    free(thread_workers[j]);
+                    oapv_mfree(thread_workers[j]);
                 }
-                free(thread_workers);
+                oapv_mfree(thread_workers);
                 oapv_tpool_sync_obj_delete(&sync_obj);
                 for(int b = 0; b < num_blocks; b++) {
-                    free(read_blocks[b].buffer);
+                    oapv_mfree(read_blocks[b].buffer);
                 }
-                free(read_blocks);
-                free(work_queue);
+                oapv_mfree(read_blocks);
+                oapv_mfree(work_queue);
                 return OAPV_ERR_OUT_OF_MEMORY;
             }
             *thread_workers[t] = worker;
@@ -3485,9 +3485,9 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
         for(int t = 0; t < num_threads - 1; t++) {
             int thread_ret;
             tpool->join(ctx->thread_id[t], &thread_ret);
-            free(thread_workers[t]);
+            oapv_mfree(thread_workers[t]);
         }
-        free(thread_workers);
+        oapv_mfree(thread_workers);
     } else {
         // Single-threaded decode
         dec_thread_tile_selective(&worker);
@@ -3500,10 +3500,10 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     oapv_tpool_sync_obj_delete(&sync_obj);
     
     for(int b = 0; b < num_blocks; b++) {
-        free(read_blocks[b].buffer);
+        oapv_mfree(read_blocks[b].buffer);
     }
-    free(read_blocks);
-    free(work_queue);
+    oapv_mfree(read_blocks);
+    oapv_mfree(work_queue);
     
     // Report performance metrics
     double io_time_ms = (metrics.io_end_ns - metrics.io_start_ns) / 1000000.0;
