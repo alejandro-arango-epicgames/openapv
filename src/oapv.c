@@ -41,6 +41,18 @@ static oapv_log_callback_t current_log_callback = NULL;
 static void* current_log_user_data = NULL;
 static int current_log_verbosity = OAPV_LOG_DEBUG;
 
+static oapv_cputrace_callbacks_t cputrace_callbacks = { NULL, NULL };
+
+#define BEGIN_CPU_TRACE(name)                                     \
+    if(cputrace_callbacks.begin_event) {                          \
+        cputrace_callbacks.begin_event(name, __FILE__, __LINE__); \
+    }
+
+#define END_CPU_TRACE()                 \
+    if(cputrace_callbacks.end_event) {  \
+        cputrace_callbacks.end_event(); \
+    }
+
 /* Simple log message for trouble shooting. */
 static void log_msg(int verbosity, const char *fmt, ...)
 {
@@ -2901,6 +2913,8 @@ static int dec_thread_tile_selective(void *arg)
         if(tile_to_process == -1) {
             break; // No more work
         }
+
+        BEGIN_CPU_TRACE("DecodeTile");
         
         tile_work_t *work = &work_queue[tile_to_process];
 
@@ -3014,6 +3028,8 @@ static int dec_thread_tile_selective(void *arg)
             (*worker->tiles_completed)++;
             oapv_tpool_leave_cs(worker->sync_obj);
         }
+
+        END_CPU_TRACE()
     }
     
     return OAPV_OK;
@@ -3399,6 +3415,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     }
     
     
+    BEGIN_CPU_TRACE("Read Blocks");
     // Perform coalesced reads
     for(int b = 0; b < num_blocks; b++) {
         istream->seek(istream, read_blocks[b].start_offset, SEEK_SET);
@@ -3412,6 +3429,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
             work_queue[tile_idx].data = read_blocks[b].buffer + tile_offset_in_block;
         }
     }
+    END_CPU_TRACE();
 
     metrics.io_end_ns = get_time_ns();
     
@@ -3548,4 +3566,14 @@ void oapv_set_logging_callback(oapv_log_callback_t callback, void* user_data)
 void oapv_set_logging_verbosity(int verbosity)
 {
     current_log_verbosity = verbosity;
+}
+
+int oapv_set_cputrace_callbacks(const oapv_cputrace_callbacks_t *callbacks)
+{
+    // Make sure all the callbacks are properly set.
+    if(callbacks->begin_event && callbacks->end_event) {
+        cputrace_callbacks = *callbacks;
+        return OAPV_OK;
+    }
+    return OAPV_ERR_INVALID_ARGUMENT;
 }
