@@ -64,6 +64,8 @@ extern "C" {
 #define OAPV_VER_NUM \
     OAPV_VER_SET(OAPV_VER_APISET,OAPV_VER_MAJOR,OAPV_VER_MINOR,OAPV_VER_PATCH)
 
+#define OAPV_HAS_FRAME_DECODE_API 1
+
 /* size of macroblock */
 #define OAPV_LOG2_MB                    (4)
 #define OAPV_LOG2_MB_W                  (4)
