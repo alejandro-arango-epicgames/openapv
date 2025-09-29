@@ -1687,9 +1687,9 @@ static int dec_frm_prepare(oapvd_ctx_t *ctx, oapv_imgb_t *imgb)
 
     // Allocate tile array if not already allocated
     if(ctx->tile == NULL) {
-        ctx->tile = (oapvd_tile_t *)oapv_malloc_fast(ctx->num_tiles * sizeof(oapvd_tile_t));
+        ctx->tile = (oapvd_tile_t *)oapv_malloc_fast(OAPV_MAX_TILES * sizeof(oapvd_tile_t));
         oapv_assert_rv(ctx->tile != NULL, OAPV_ERR_OUT_OF_MEMORY);
-        oapv_mset_x64a(ctx->tile, 0, ctx->num_tiles * sizeof(oapvd_tile_t));
+        oapv_mset_x64a(ctx->tile, 0, OAPV_MAX_TILES * sizeof(oapvd_tile_t));
     }
 
     dec_set_tile_info(ctx->tile, ctx->w, ctx->h, tile_w, tile_h, ctx->num_tile_cols, ctx->num_tiles);

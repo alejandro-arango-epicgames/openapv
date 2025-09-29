@@ -773,7 +773,7 @@ static int dec_vlc_tile_info(oapv_bs_t *bs, oapv_fh_t *fh)
 
     // Allocate tile_size array if needed
     if(fh->tile_size == NULL) {
-        fh->tile_size = (u32 *)oapv_malloc_fast(num_tiles * sizeof(u32));
+        fh->tile_size = (u32 *)oapv_malloc_fast(OAPV_MAX_TILES * sizeof(u32));
         oapv_assert_rv(fh->tile_size != NULL, OAPV_ERR_OUT_OF_MEMORY);
     }
 
