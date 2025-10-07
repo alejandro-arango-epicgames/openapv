@@ -844,7 +844,7 @@ static int enc_ready(oapve_ctx_t *ctx)
 
     // Initialize all allocated tiles
     for(int i = 0; i < OAPV_MAX_TILES; i++) {
-        ctx->tile[i].stat =ENC_TILE_STAT_NOT_ENCODED;
+        ctx->tile[i].stat = ENC_TILE_STAT_NOT_ENCODED;
     }
     ctx->tile[0].bs_buf = (u8 *)oapv_malloc(ctx->cdesc.max_bs_buf_size);
     oapv_assert_gv(ctx->tile[0].bs_buf, ret, OAPV_ERR_UNKNOWN, ERR);
@@ -1026,7 +1026,7 @@ static int enc_thread_tile(void *arg)
         oapv_tpool_enter_cs(ctx->sync_obj);
         for(i = 0; i < ctx->num_tiles; i++) {
             if(tile[i].stat == ENC_TILE_STAT_NOT_ENCODED) {
-                tile[i].stat =ENC_TILE_STAT_ON_ENCODING;
+                tile[i].stat = ENC_TILE_STAT_ON_ENCODING;
                 core->tile_idx = i;
                 break;
             }
@@ -1040,7 +1040,7 @@ static int enc_thread_tile(void *arg)
         oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
         oapv_tpool_enter_cs(ctx->sync_obj);
-        tile[core->tile_idx].stat =ENC_TILE_STAT_ENCODED;
+        tile[core->tile_idx].stat = ENC_TILE_STAT_ENCODED;
         oapv_tpool_leave_cs(ctx->sync_obj);
     }
 ERR:
@@ -1183,7 +1183,7 @@ static int enc_frm_prepare(oapve_ctx_t *ctx, oapve_param_t *param, oapv_imgb_t *
         imgb_addref(ctx->imgb_r);
     }
     for(i = 0; i < ctx->num_tiles; i++) {
-        ctx->tile[i].stat =ENC_TILE_STAT_NOT_ENCODED;
+        ctx->tile[i].stat = ENC_TILE_STAT_NOT_ENCODED;
     }
 
     ctx->param = param;
@@ -3250,6 +3250,8 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
             break;
         }
 
+        BEGIN_CPU_TRACE("DecodeTile");
+
         tile_work_t *work = &work_queue[tile_to_process];
 
         oapv_bs_t tile_bs;
@@ -3345,6 +3347,8 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
             (*worker->tiles_completed)++;
             oapv_tpool_leave_cs(worker->sync_obj);
         }
+
+        END_CPU_TRACE();
     }
 
     return OAPV_OK;
@@ -3401,7 +3405,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
     mip_context_t *mip_contexts = (mip_context_t *)oapv_calloc(multi_mip_decode->num_mips, sizeof(mip_context_t));
     if(!mip_contexts) {
         oapv_mfree(mip_contexts);
-            oapv_mfree(work_queue);
+        oapv_mfree(work_queue);
         return OAPV_ERR_OUT_OF_MEMORY;
     }
 
@@ -3645,6 +3649,8 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
         }
     }
 
+    BEGIN_CPU_TRACE("Read Blocks");
+
     /* Perform coalesced I/O operations */
     for(int b = 0; b < num_blocks; b++) {
         read_blocks[b].total_size = (u32)(read_blocks[b].end_offset - read_blocks[b].start_offset);
@@ -3669,6 +3675,8 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
             work_queue[tile_idx].data = read_blocks[b].buffer + tile_offset_in_block;
         }
     }
+
+    END_CPU_TRACE();
 
     metrics.io_end_ns = get_time_ns();
     metrics.decode_start_ns = get_time_ns();
