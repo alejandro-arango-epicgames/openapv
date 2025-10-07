@@ -13,17 +13,28 @@
 typedef unsigned char u8;
 typedef unsigned short u16;
 
+// Multi-mip test configuration structure
+typedef struct {
+    int mip_level;
+    int num_tiles;
+    int tile_coords[2000]; // Coordinate pairs - supports up to 1000 tiles per mip
+} multi_mip_config_t;
+
 // Test configuration structure
 typedef struct {
     const char* name;
     const char* description;
-    enum { TEST_SINGLE_TILE, TEST_MULTI_TILE } test_type;
+    enum { TEST_SINGLE_TILE, TEST_MULTI_TILE, TEST_MULTI_MIP } test_type;
     int mip_level;
     int tile_coords[5000]; // Coordinate pairs terminated by {-1, -1} - supports up to 2500 tiles (enough for 16K)
     int thread_counts[16]; // Thread counts to test, terminated by 0
     enum { OUTPUT_NONE, OUTPUT_RAW, OUTPUT_Y4M } output_format;
     int measure_performance;
     enum { VALIDATE_QUICK, VALIDATE_FULL } validation_level;
+
+    // Multi-mip specific configuration
+    int num_mips; // Number of mip levels to decode simultaneously
+    multi_mip_config_t mip_configs[10]; // Support up to 10 mip levels
 } test_config_t;
 
 // Predefined test configurations covering all current use cases
@@ -558,10 +569,118 @@ static test_config_t test_configs[] = {
         .output_format = OUTPUT_Y4M,
         .measure_performance = 1,
         .validation_level = VALIDATE_QUICK
+    },
+    // Multi-mip tests
+    {
+        .name = "multimip_single_center",
+        .description = "Multi-mip decode: single center tile from different mip levels",
+        .test_type = TEST_MULTI_MIP,
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_FULL,
+        .num_mips = 3,
+        .mip_configs = {
+            {.mip_level = 0, .num_tiles = 1, .tile_coords = {7, 4}},
+            {.mip_level = 1, .num_tiles = 1, .tile_coords = {3, 2}},
+            {.mip_level = 2, .num_tiles = 1, .tile_coords = {1, 1}}
+        }
+    },
+    {
+        .name = "multimip_2x2_blocks",
+        .description = "Multi-mip decode: 2x2 tile blocks from different mip levels",
+        .test_type = TEST_MULTI_MIP,
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_FULL,
+        .num_mips = 3,
+        .mip_configs = {
+            {.mip_level = 0, .num_tiles = 4, .tile_coords = {6, 3, 7, 3, 6, 4, 7, 4}},
+            {.mip_level = 1, .num_tiles = 4, .tile_coords = {2, 1, 3, 1, 2, 2, 3, 2}},
+            {.mip_level = 2, .num_tiles = 4, .tile_coords = {0, 0, 1, 0, 0, 1, 1, 1}}
+        }
+    },
+    {
+        .name = "multimip_sparse",
+        .description = "Multi-mip decode: sparse tiles from different mip levels",
+        .test_type = TEST_MULTI_MIP,
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_FULL,
+        .num_mips = 4,
+        .mip_configs = {
+            {.mip_level = 0, .num_tiles = 4, .tile_coords = {0, 0, 14, 0, 0, 8, 14, 8}},
+            {.mip_level = 1, .num_tiles = 2, .tile_coords = {0, 0, 7, 4}},
+            {.mip_level = 2, .num_tiles = 1, .tile_coords = {1, 1}},
+            {.mip_level = 3, .num_tiles = 1, .tile_coords = {0, 0}}
+        }
+    },
+    {
+        .name = "multi_all_mip9",
+        .description = "Multi-mip decode: request non-existent mip level 9 along with valid ones",
+        .test_type = TEST_MULTI_MIP,
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_Y4M,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_FULL,
+        .num_mips = 4,
+        .mip_configs = {
+            {.mip_level = 0, .num_tiles = 1, .tile_coords = {7, 4}},
+            {.mip_level = 2, .num_tiles = 1, .tile_coords = {1, 1}},
+            {.mip_level = 5, .num_tiles = 1, .tile_coords = {0, 0}},
+            {.mip_level = 9, .num_tiles = 1, .tile_coords = {0, 0}} // This should fail
+        }
+    },
+    {
+        .name = "multimip_performance_comparison",
+        .description = "Performance comparison: multi-mip vs individual mip decodes",
+        .test_type = TEST_MULTI_MIP,
+        .thread_counts = {8, 0},
+        .output_format = OUTPUT_NONE,
+        .measure_performance = 1,
+        .validation_level = VALIDATE_FULL,
+        .num_mips = 3,
+        .mip_configs = {
+            {.mip_level = 0, .num_tiles = 6, .tile_coords = {6, 3, 7, 3, 8, 3, 6, 4, 7, 4, 8, 4}},
+            {.mip_level = 1, .num_tiles = 4, .tile_coords = {2, 1, 3, 1, 2, 2, 3, 2}},
+            {.mip_level = 2, .num_tiles = 2, .tile_coords = {1, 1, 2, 1}}
+        }
+    },
+    {
+        .name = "invalid_test",
+        .description = "Test with only invalid mip levels to test error handling",
+        .test_type = TEST_MULTI_MIP,
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_NONE,
+        .measure_performance = 0,
+        .validation_level = VALIDATE_FULL,
+        .num_mips = 2,
+        .mip_configs = {
+            {.mip_level = 15, .num_tiles = 1, .tile_coords = {0, 0}}, // Should fail
+            {.mip_level = 20, .num_tiles = 1, .tile_coords = {0, 0}}  // Should fail
+        }
+    },
+    {
+        .name = "debug_single_mip0",
+        .description = "Debug test: single mip level 0 only",
+        .test_type = TEST_MULTI_MIP,
+        .thread_counts = {1, 0},
+        .output_format = OUTPUT_NONE,
+        .measure_performance = 0,
+        .validation_level = VALIDATE_FULL,
+        .num_mips = 1,
+        .mip_configs = {
+            {.mip_level = 0, .num_tiles = 1, .tile_coords = {7, 4}} // Should work
+        }
     }
 };
 
 static int num_test_configs = sizeof(test_configs) / sizeof(test_configs[0]);
+
+// Function declarations
+int run_multi_mip_test_config(const char* input_file, const test_config_t* config);
 
 // Count tiles from sentinel-terminated coordinate array
 int count_tiles_from_coords(const int* tile_coords) {
@@ -964,14 +1083,280 @@ int run_multiframe_test(const char* framelist_file, int num_threads)
 }
 
 // Run a single test configuration
+// Function to run multi-mip tests
+int run_multi_mip_test_config(const char* input_file, const test_config_t* config) {
+    FILE* fp = fopen(input_file, "rb");
+    if (!fp) {
+        printf("ERROR: Cannot open input file %s\n", input_file);
+        return -1;
+    }
+
+    // Create initial decoder for metadata
+    oapvd_cdesc_t cdesc = {0};
+    cdesc.threads = config->thread_counts[0];
+    int err;
+    oapvd_t decoder_id = oapvd_create(&cdesc, &err);
+    if (decoder_id == NULL) {
+        printf("ERROR: Failed to create decoder (error code: %d)\n", err);
+        fclose(fp);
+        return -1;
+    }
+
+    // Set up multi-mip decode structure
+    oapv_multi_mip_decode_t multi_mip_decode = {0};
+    multi_mip_decode.num_mips = config->num_mips;
+
+    // Allocate mip requests array
+    oapv_mip_request_t *mip_requests = (oapv_mip_request_t*)calloc(config->num_mips, sizeof(oapv_mip_request_t));
+    if (!mip_requests) {
+        printf("ERROR: Failed to allocate mip requests\n");
+        oapvd_delete(decoder_id);
+        fclose(fp);
+        return -1;
+    }
+    multi_mip_decode.mip_requests = mip_requests;
+
+    oapvd_istream_t istream;
+    file_istream_init(&istream, fp);
+
+    // Initialize mip requests from config
+    int total_tiles = 0;
+    for (int m = 0; m < config->num_mips; m++) {
+        mip_requests[m].mip_level = config->mip_configs[m].mip_level;
+        mip_requests[m].num_tiles = config->mip_configs[m].num_tiles;
+
+        // Copy tile coordinates
+        for (int i = 0; i < config->mip_configs[m].num_tiles * 2; i++) {
+            mip_requests[m].tile_coords[i] = config->mip_configs[m].tile_coords[i];
+        }
+
+        mip_requests[m].output_buffer = NULL; // First pass for metadata only
+        total_tiles += config->mip_configs[m].num_tiles;
+
+        printf("  Mip %d: %d tiles\n", config->mip_configs[m].mip_level, config->mip_configs[m].num_tiles);
+    }
+
+    printf("Total tiles across all mips: %d\n", total_tiles);
+
+    // Get metadata
+    oapvd_stat_t stat = {0};
+    int ret = oapvd_decode_selective_multi_mips(decoder_id, &istream, &multi_mip_decode, 0, &stat);
+
+    if (OAPV_FAILED(ret)) {
+        printf("ERROR: Failed to get metadata (return code: %d)\n", ret);
+        free(mip_requests);
+        oapvd_delete(decoder_id);
+        fclose(fp);
+        return -1;
+    }
+
+    // Print metadata and status for each mip
+    printf("\nMip level metadata:\n");
+    for (int m = 0; m < config->num_mips; m++) {
+        oapv_mip_request_t *mip_req = &mip_requests[m];
+        printf("  Mip %d: Status=%s", mip_req->mip_level,
+               (mip_req->status == OAPV_OK) ? "OK" : "ERROR");
+
+        if (mip_req->status == OAPV_OK) {
+            printf(", Frame=%dx%d, Tile=%dx%d, Depth=%d\n",
+                   mip_req->frame_width_mb_aligned, mip_req->frame_height_mb_aligned,
+                   mip_req->tile_width_mb_aligned, mip_req->tile_height_mb_aligned,
+                   mip_req->bit_depth);
+        } else {
+            printf(" (code=%d)\n", mip_req->status);
+        }
+    }
+
+    // Create output buffers for valid mips if needed
+    if (config->output_format != OUTPUT_NONE || config->validation_level == VALIDATE_FULL) {
+        for (int m = 0; m < config->num_mips; m++) {
+            oapv_mip_request_t *mip_req = &mip_requests[m];
+            if (mip_req->status == OAPV_OK) {
+                mip_req->output_buffer = create_frame_buffer(
+                    mip_req->frame_width_mb_aligned, mip_req->frame_height_mb_aligned,
+                    3, mip_req->bit_depth);
+
+                if (!mip_req->output_buffer) {
+                    printf("ERROR: Failed to allocate frame buffer for mip %d\n", mip_req->mip_level);
+                    // Cleanup and return
+                    for (int j = 0; j < m; j++) {
+                        if (mip_requests[j].output_buffer) {
+                            delete_frame_buffer(mip_requests[j].output_buffer);
+                        }
+                    }
+                    free(mip_requests);
+                    oapvd_delete(decoder_id);
+                    fclose(fp);
+                    return -1;
+                }
+            }
+        }
+    }
+
+    // Run tests for each thread count
+    for (int t = 0; config->thread_counts[t] != 0; t++) {
+        int thread_count = config->thread_counts[t];
+
+        // Update decoder thread count
+        oapvd_delete(decoder_id);
+        cdesc.threads = thread_count;
+        decoder_id = oapvd_create(&cdesc, &err);
+        if (!decoder_id) {
+            printf("ERROR: Failed to recreate decoder with %d threads\n", thread_count);
+            break;
+        }
+
+        printf("\n--- Testing with %d thread%s ---\n", thread_count, (thread_count > 1) ? "s" : "");
+
+        // Reset stat for actual decode
+        stat.read = 0;
+
+        clock_t start_time = clock();
+
+        // Run the multi-mip decode
+        ret = oapvd_decode_selective_multi_mips(decoder_id, &istream, &multi_mip_decode, 0, &stat);
+
+        clock_t end_time = clock();
+        double elapsed_ms = ((double)(end_time - start_time) / CLOCKS_PER_SEC) * 1000.0;
+
+        if (OAPV_FAILED(ret)) {
+            printf("ERROR: Multi-mip decode failed (return code: %d)\n", ret);
+        } else {
+            printf("SUCCESS: Multi-mip decode completed\n");
+            printf("Timing: %.2f ms, Data read: %d bytes\n", elapsed_ms, stat.read);
+
+            // Check individual mip statuses
+            int valid_mips = 0;
+            for (int m = 0; m < config->num_mips; m++) {
+                if (mip_requests[m].status == OAPV_OK) {
+                    valid_mips++;
+                }
+            }
+            printf("Valid mips decoded: %d/%d\n", valid_mips, config->num_mips);
+        }
+
+        // VALIDATION - This was completely missing!
+        if (ret == OAPV_OK) {
+            for (int m = 0; m < config->num_mips; m++) {
+                oapv_mip_request_t *mip_req = &mip_requests[m];
+                if (mip_req->status == OAPV_OK && mip_req->output_buffer) {
+                    printf("Validating mip %d output...\n", mip_req->mip_level);
+                    if (config->validation_level == VALIDATE_QUICK) {
+                        validate_quick(mip_req->output_buffer, mip_req->num_tiles);
+                    } else if (config->validation_level == VALIDATE_FULL) {
+                        validate_full(mip_req->output_buffer, mip_req->num_tiles);
+                    }
+                }
+            }
+        }
+
+        if (config->measure_performance) {
+            printf("Performance: %.2f tiles/ms, %.2f MB/s\n",
+                   total_tiles / elapsed_ms,
+                   (stat.read / (1024.0 * 1024.0)) / (elapsed_ms / 1000.0));
+        }
+
+        // Save output files
+        if (config->output_format == OUTPUT_Y4M && ret == OAPV_OK) {
+            for (int m = 0; m < config->num_mips; m++) {
+                oapv_mip_request_t *mip_req = &mip_requests[m];
+                if (mip_req->status == OAPV_OK && mip_req->output_buffer) {
+                    char output_filename[256];
+                    snprintf(output_filename, sizeof(output_filename),
+                             "output/%s_mip%d_threads%d.y4m",
+                             config->name, mip_req->mip_level, thread_count);
+
+                    write_frame_y4m(output_filename, mip_req->output_buffer);
+                    printf("Saved: %s\n", output_filename);
+
+                    // Auto-generate PNG from Y4M
+                    char png_filename[256];
+                    char ffmpeg_cmd[512];
+                    strcpy(png_filename, output_filename);
+
+                    char *ext = strrchr(png_filename, '.');
+                    if (ext) {
+                        strcpy(ext, ".png");
+                    }
+
+                    snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
+                        "ffmpeg -y -i \"%s\" \"%s\" 2>NUL", output_filename, png_filename);
+
+                    int ffmpeg_result = system(ffmpeg_cmd);
+                    if (ffmpeg_result == 0) {
+                        printf("Saved PNG: %s\n", png_filename);
+                    } else {
+                        printf("Warning: Failed to convert Y4M to PNG for mip %d (ffmpeg not available or failed)\n", mip_req->mip_level);
+                    }
+                }
+            }
+        }
+    }
+
+    // Performance comparison test for "multimip_performance_comparison"
+    if (strcmp(config->name, "multimip_performance_comparison") == 0) {
+        printf("\n=== Performance Comparison: Multi-mip vs Individual ===\n");
+
+        // Time the multi-mip approach (already done above)
+        double multi_mip_time = 0;
+        // TODO: Extract timing from above loop
+
+        // Time the individual mip approach
+        clock_t individual_start = clock();
+        for (int m = 0; m < config->num_mips; m++) {
+            oapv_mip_request_t *mip_req = &mip_requests[m];
+            if (mip_req->status == OAPV_OK) {
+                oapv_selective_decode_t single_decode = {0};
+                single_decode.mip_level = mip_req->mip_level;
+                single_decode.num_tiles = mip_req->num_tiles;
+                memcpy(single_decode.tile_coords, mip_req->tile_coords,
+                       mip_req->num_tiles * 2 * sizeof(int));
+                single_decode.output_buffer = mip_req->output_buffer;
+
+                ret = oapvd_decode_selective_multi(decoder_id, &istream, &single_decode, 0, &stat);
+                if (OAPV_FAILED(ret)) {
+                    printf("ERROR: Individual decode failed for mip %d\n", mip_req->mip_level);
+                }
+            }
+        }
+        clock_t individual_end = clock();
+        double individual_time = ((double)(individual_end - individual_start) / CLOCKS_PER_SEC) * 1000.0;
+
+        printf("Individual approach time: %.2f ms\n", individual_time);
+        // TODO: Compare with multi-mip time and show speedup
+    }
+
+    // Cleanup
+    for (int m = 0; m < config->num_mips; m++) {
+        if (mip_requests[m].output_buffer) {
+            delete_frame_buffer(mip_requests[m].output_buffer);
+        }
+    }
+    free(mip_requests);
+    oapvd_delete(decoder_id);
+    fclose(fp);
+
+    return (ret == OAPV_OK) ? 0 : -1;
+}
+
 int run_test_config(const char* input_file, const test_config_t* config) {
     printf("\n=== Test: %s ===\n", config->name);
     printf("Description: %s\n", config->description);
     
+    const char* type_str = (config->test_type == TEST_SINGLE_TILE) ? "Single" :
+                          (config->test_type == TEST_MULTI_TILE) ? "Multi" : "Multi-Mip";
+
+    if (config->test_type == TEST_MULTI_MIP) {
+        int total_tiles = 0;
+        for (int m = 0; m < config->num_mips; m++) {
+            total_tiles += config->mip_configs[m].num_tiles;
+        }
+        printf("Type: %s, Mips: %d, Total tiles: %d\n", type_str, config->num_mips, total_tiles);
+        return run_multi_mip_test_config(input_file, config);
+    }
+
     int num_tiles = count_tiles_from_coords(config->tile_coords);
-    printf("Type: %s, Mip: %d, Tiles: %d\n", 
-           (config->test_type == TEST_SINGLE_TILE) ? "Single" : "Multi",
-           config->mip_level, num_tiles);
+    printf("Type: %s, Mip: %d, Tiles: %d\n", type_str, config->mip_level, num_tiles);
     
     FILE* fp = fopen(input_file, "rb");
     if (!fp) {
@@ -1153,8 +1538,16 @@ int run_test_config(const char* input_file, const test_config_t* config) {
 void print_available_tests() {
     printf("Available test configurations:\n");
     for(int i = 0; i < num_test_configs; i++) {
-        int num_tiles = count_tiles_from_coords(test_configs[i].tile_coords);
-        printf("%2d. %-25s - %s (%d tiles)\n", 
+        int num_tiles;
+        if (test_configs[i].test_type == TEST_MULTI_MIP) {
+            num_tiles = 0;
+            for (int m = 0; m < test_configs[i].num_mips; m++) {
+                num_tiles += test_configs[i].mip_configs[m].num_tiles;
+            }
+        } else {
+            num_tiles = count_tiles_from_coords(test_configs[i].tile_coords);
+        }
+        printf("%2d. %-25s - %s (%d tiles)\n",
                i+1, test_configs[i].name, test_configs[i].description, num_tiles);
     }
 }

@@ -704,6 +704,34 @@ struct oapv_selective_decode {
 };
 
 /*****************************************************************************
+ * multi-mip selective decode structures
+ *****************************************************************************/
+typedef struct oapv_mip_request oapv_mip_request_t;
+struct oapv_mip_request {
+    int mip_level;                          // Which mip level to decode (0=full, 1=half, etc.)
+    int num_tiles;                          // Number of tiles to decode for this mip
+    int tile_coords[2*OAPV_MAX_TILES];      // Pairs of [col, row] for each tile
+    oapv_imgb_t *output_buffer;             // Output buffer for this mip level
+
+    // Status (filled by decoder)
+    int status;                             // OAPV_OK if successful, error code otherwise
+
+    // Frame metadata (filled by decoder)
+    int frame_width_mb_aligned;             // Frame width from mip level metadata
+    int frame_height_mb_aligned;            // Frame height from mip level metadata
+    int tile_width_mb_aligned;              // Tile width in pixels (converted from MBs)
+    int tile_height_mb_aligned;             // Tile height in pixels (converted from MBs)
+    int bit_depth;                          // Bit depth from frame metadata
+    int chroma_format;                      // Chroma format from frame metadata
+};
+
+typedef struct oapv_multi_mip_decode oapv_multi_mip_decode_t;
+struct oapv_multi_mip_decode {
+    int num_mips;                           // Number of mip levels to decode
+    oapv_mip_request_t *mip_requests;       // Array of mip requests
+};
+
+/*****************************************************************************
  * selective decode input stream
  *****************************************************************************/
 typedef struct oapvd_istream oapvd_istream_t;
@@ -763,6 +791,7 @@ OAPV_EXPORT int oapvd_config(oapvd_t did, int cfg, void *buf, int *size);
 OAPV_EXPORT int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid, oapvd_stat_t *stat);
 OAPV_EXPORT int oapvd_decode_selective(oapvd_t did, oapvd_istream_t *istream, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
 OAPV_EXPORT int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_selective_decode_t *sel_decode, oapvm_t mid, oapvd_stat_t *stat);
+OAPV_EXPORT int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream, oapv_multi_mip_decode_t *multi_mip_decode, oapvm_t mid, oapvd_stat_t *stat);
 
 /*****************************************************************************
  * interface for utility

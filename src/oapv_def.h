@@ -331,6 +331,7 @@ struct oapve_ctx {
 #define DEC_TILE_STAT_NOT_DECODED 0
 #define DEC_TILE_STAT_ON_DECODING 1
 #define DEC_TILE_STAT_DECODED     2
+#define DEC_TILE_STAT_ERROR       3
 #define DEC_TILE_STAT_SIZE_ERROR  -1
 
 typedef struct oapvd_tile oapvd_tile_t;

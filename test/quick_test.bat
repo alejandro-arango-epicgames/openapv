@@ -25,7 +25,8 @@ if errorlevel 1 (
 
 REM Run the quick tests
 
-set TEST=multi_all_mip7
+set TEST=multimip_single_center
+REM set TEST=multi_all_mip0
 set FRAME=media\koala_tiled\koala_tiled_0000.apv1
 
 echo Running %TEST% test...

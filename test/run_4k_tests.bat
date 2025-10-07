@@ -76,6 +76,15 @@ echo Running mip level tests...
 %DECODER_EXE% %MEDIA_4K% multi_mip1_single
 %DECODER_EXE% %MEDIA_4K% multi_mip1_first_row
 
+REM Multi-mip selective decode tests
+echo Running multi-mip selective decode tests...
+%DECODER_EXE% %MEDIA_4K% multi_2x2_contiguous_multimip
+%DECODER_EXE% %MEDIA_4K% multi_all_mip9
+%DECODER_EXE% %MEDIA_4K% multimip_single_center
+%DECODER_EXE% %MEDIA_4K% multimip_2x2_blocks
+%DECODER_EXE% %MEDIA_4K% multimip_sparse
+%DECODER_EXE% %MEDIA_4K% multimip_performance_comparison
+
 REM Single mip1 tile tests
 echo Running individual mip1 tile tests...
 %DECODER_EXE% %MEDIA_4K% single_mip1_tile_0_0

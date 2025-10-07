@@ -265,3 +265,11 @@ set_tests_properties(decode PROPERTIES
 add_executable(decoder_test test/src/decoder_test.c)
 target_link_libraries(decoder_test oapv)
 target_compile_definitions(decoder_test PRIVATE ENABLE_DECODER=1)
+
+add_executable(test_multi_mip_performance test/src/test_multi_mip_performance.c)
+target_link_libraries(test_multi_mip_performance oapv)
+target_compile_definitions(test_multi_mip_performance PRIVATE ENABLE_DECODER=1)
+
+add_executable(test_multi_mip_error_handling test/src/test_multi_mip_error_handling.c)
+target_link_libraries(test_multi_mip_error_handling oapv)
+target_compile_definitions(test_multi_mip_error_handling PRIVATE ENABLE_DECODER=1)
