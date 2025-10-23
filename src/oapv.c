@@ -3442,6 +3442,8 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
         mip_infos[m].frame_header.tile_size = NULL;
     }
 
+    BEGIN_CPU_TRACE("Locate Mips");
+
     /* Locate each requested mip level */
     for(int m = 0; m < multi_mip_decode->num_mips; m++) {
         int target_mip = mip_infos[m].mip_level;
@@ -3463,6 +3465,10 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
             mip_infos[m].found = 0;
         }
     }
+
+    END_CPU_TRACE();
+
+    BEGIN_CPU_TRACE("Parse headers");
 
     /* Parse frame headers and initialize decode context for each mip */
     for(int m = 0; m < multi_mip_decode->num_mips; m++) {
@@ -3516,6 +3522,10 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
         mip_info->mip_req->status = OAPV_OK;
 
     }
+
+    END_CPU_TRACE();
+
+    BEGIN_CPU_TRACE("Build Work Queue");
 
     /* Build work queue from all requested tiles across mips */
     int work_queue_idx = 0;
@@ -3601,6 +3611,8 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
 
         }
     }
+
+    END_CPU_TRACE();
 
     for(int m = 0; m < multi_mip_decode->num_mips; m++) {
         if(mip_infos[m].frame_header.tile_size) {
