@@ -3043,6 +3043,113 @@ static int oapvd_locate_mip_frame(oapvd_istream_t *istream, oapv_stream_info_t *
     return OAPV_OK;
 }
 
+// Batch mip level discovery - locates multiple mip frames in a single traversal
+static int oapvd_locate_all_mips(oapvd_istream_t *istream, oapv_stream_info_t *stream_info,
+                                 const int *requested_mips, int num_mips,
+                                 oapv_mip_location_t *locations,
+                                 perf_metrics_t *metrics)
+{
+    oapv_assert_rv(istream && stream_info && requested_mips && locations, OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv(num_mips > 0, OAPV_ERR_INVALID_ARGUMENT);
+
+    // Initialize all locations as not found
+    for(int i = 0; i < num_mips; i++) {
+        locations[i].found = 0;
+    }
+
+    // Find the highest requested mip level for early termination
+    int max_mip = requested_mips[0];
+    for(int i = 1; i < num_mips; i++) {
+        if(requested_mips[i] > max_mip) {
+            max_mip = requested_mips[i];
+        }
+    }
+
+    // Create a lookup map for fast mip-to-index resolution
+    // Map mip level -> index in locations array (-1 if not requested)
+    int mip_to_idx[256]; // Support up to 256 mip levels
+    for(int i = 0; i < 256; i++) {
+        mip_to_idx[i] = -1;
+    }
+    for(int i = 0; i < num_mips; i++) {
+        if(requested_mips[i] < 256) {
+            mip_to_idx[requested_mips[i]] = i;
+        }
+    }
+
+    // Single traversal through PBU stream
+    int current_frame = 0;
+    long current_pos = stream_info->au_start_pos + 4; // Skip signature
+    int found_count = 0;
+
+    while(current_pos < stream_info->au_start_pos + stream_info->au_size &&
+          current_frame <= max_mip) {
+
+        istream->seek(istream, current_pos, SEEK_SET);
+
+        // Read PBU size
+        u8 pbu_size_buf[4];
+        istream->read(istream, pbu_size_buf, 4, 1);
+        u32 pbu_size = (pbu_size_buf[0] << 24) | (pbu_size_buf[1] << 16) |
+                       (pbu_size_buf[2] << 8) | pbu_size_buf[3];
+
+        if(pbu_size == 0 || pbu_size > stream_info->au_size) {
+            return OAPV_ERR_MALFORMED_BITSTREAM;
+        }
+
+        if(metrics) {
+            metrics->bytes_read += 4;
+        }
+
+        // Read and parse PBU header
+        u8 pbu_header_buf[4];
+        istream->read(istream, pbu_header_buf, 4, 1);
+        
+        if(metrics) {
+            metrics->bytes_read += 4;
+        }
+
+        oapv_bs_t pbu_header_bs;
+        oapv_bsr_init(&pbu_header_bs, pbu_header_buf, 4, NULL);
+
+        oapv_pbuh_t pbuh;
+        int ret = oapvd_vlc_pbu_header(&pbu_header_bs, &pbuh);
+        
+        if(OAPV_FAILED(ret)) {
+            return ret;
+        }
+
+        // Check if this is a frame PBU
+        if(pbuh.pbu_type == OAPV_PBU_TYPE_PRIMARY_FRAME ||
+           pbuh.pbu_type == OAPV_PBU_TYPE_NON_PRIMARY_FRAME) {
+
+            // Check if this mip level is requested
+            if(current_frame < 256) {
+                int idx = mip_to_idx[current_frame];
+                if(idx >= 0) {
+                    // Found a requested mip
+                    locations[idx].frame_file_pos = current_pos;
+                    locations[idx].pbu_size = pbu_size;
+                    locations[idx].found = 1;
+                    found_count++;
+
+                    // Early termination if all mips found
+                    if(found_count == num_mips) {
+                        return OAPV_OK;
+                    }
+                }
+            }
+            current_frame++;
+        }
+
+        // Skip to next PBU
+        current_pos += 4 + pbu_size;
+    }
+
+    // Return success even if not all mips found (caller checks found flags)
+    return OAPV_OK;
+}
+
 // Frame header parsing with progressive buffer expansion
 static int oapvd_parse_frame_headers(oapvd_istream_t *istream, oapv_mip_location_t *location,
                                      oapvd_ctx_t *ctx, oapv_fh_t *frame_header,
@@ -3444,27 +3551,56 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
 
     BEGIN_CPU_TRACE("Locate Mips");
 
-    /* Locate each requested mip level */
+    /* Build array of requested mip levels for batch lookup */
+    int *requested_mips = (int *)oapv_malloc(multi_mip_decode->num_mips * sizeof(int));
+    if(!requested_mips) {
+        oapv_mfree(mip_infos);
+        oapv_mfree(mip_contexts);
+        oapv_mfree(work_queue);
+        return OAPV_ERR_OUT_OF_MEMORY;
+    }
+
     for(int m = 0; m < multi_mip_decode->num_mips; m++) {
-        int target_mip = mip_infos[m].mip_level;
-        oapv_mip_location_t location;
+        requested_mips[m] = mip_infos[m].mip_level;
+    }
 
-        ret = oapvd_locate_mip_frame(istream, &stream_info, target_mip, &location, &metrics);
-        if(OAPV_FAILED(ret)) {
-            oapv_mfree(mip_infos);
-            oapv_mfree(mip_contexts);
-            oapv_mfree(work_queue);
-            return ret;
-        }
+    /* Allocate locations array for batch results */
+    oapv_mip_location_t *locations = (oapv_mip_location_t *)oapv_malloc(
+        multi_mip_decode->num_mips * sizeof(oapv_mip_location_t));
+    if(!locations) {
+        oapv_mfree(requested_mips);
+        oapv_mfree(mip_infos);
+        oapv_mfree(mip_contexts);
+        oapv_mfree(work_queue);
+        return OAPV_ERR_OUT_OF_MEMORY;
+    }
 
-        if(location.found) {
-            mip_infos[m].frame_file_offset = location.frame_file_pos;
-            mip_infos[m].pbu_size = location.pbu_size;
+    /* Locate all requested mip levels in a single traversal */
+    ret = oapvd_locate_all_mips(istream, &stream_info, requested_mips,
+                                multi_mip_decode->num_mips, locations, &metrics);
+    if(OAPV_FAILED(ret)) {
+        oapv_mfree(locations);
+        oapv_mfree(requested_mips);
+        oapv_mfree(mip_infos);
+        oapv_mfree(mip_contexts);
+        oapv_mfree(work_queue);
+        return ret;
+    }
+
+    /* Copy results back to mip_infos */
+    for(int m = 0; m < multi_mip_decode->num_mips; m++) {
+        if(locations[m].found) {
+            mip_infos[m].frame_file_offset = locations[m].frame_file_pos;
+            mip_infos[m].pbu_size = locations[m].pbu_size;
             mip_infos[m].found = 1;
         } else {
             mip_infos[m].found = 0;
         }
     }
+
+    /* Clean up temporary arrays */
+    oapv_mfree(locations);
+    oapv_mfree(requested_mips);
 
     END_CPU_TRACE();
 
