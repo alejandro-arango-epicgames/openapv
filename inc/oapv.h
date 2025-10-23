@@ -67,10 +67,11 @@ extern "C" {
     OAPV_VER_SET(OAPV_VER_APISET,OAPV_VER_MAJOR,OAPV_VER_MINOR,OAPV_VER_PATCH)
 
 /* TMV specific APIs */
-#define OAPV_HAS_SELECTIVE_DECODE_API   1
-#define OAPV_HAS_LOGGING_API            1
-#define OAPV_HAS_MEMORY_API             1
-#define OAPV_HAS_CPU_TRACE_API          1
+#define OAPV_HAS_SELECTIVE_MULTI_MIPS_DECODE_API 1
+#define OAPV_HAS_SELECTIVE_DECODE_API            1
+#define OAPV_HAS_LOGGING_API                     1
+#define OAPV_HAS_MEMORY_API                      1
+#define OAPV_HAS_CPU_TRACE_API                   1
 
 /* size of macroblock */
 #define OAPV_LOG2_MB                    (4)
