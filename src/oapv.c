@@ -3354,13 +3354,20 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
             break;
         }
 
+        tile_work_t *work = &work_queue[tile_idx];
+
         // Wait for tile data to be loaded (batched I/O)
-        while(work_queue[tile_idx].status == DEC_TILE_STAT_NOT_READY) {
-            if(*worker->io_complete && work_queue[tile_idx].status == DEC_TILE_STAT_NOT_READY) {
-                // I/O complete but tile still not ready - shouldn't happen, exit
+        while(1) {
+            oapv_tpool_enter_cs(worker->sync_obj);
+            int current_status = work->status;
+            oapv_tpool_leave_cs(worker->sync_obj);
+
+            if(current_status != DEC_TILE_STAT_NOT_READY) {
                 break;
             }
+
             // Wait for I/O batch to load this tile
+
             #ifdef _WIN32
             Sleep(0);
             #else
@@ -3368,21 +3375,15 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
             #endif
         }
 
-        // Skip if tile wasn't loaded (edge case)
-        if(work_queue[tile_idx].status != DEC_TILE_STAT_NOT_DECODED) {
-            continue;
-        }
-
-        // Mark tile as being decoded
-        oapv_tpool_enter_cs(worker->sync_obj);
-        work_queue[tile_idx].status = DEC_TILE_STAT_ON_DECODING;
-        oapv_tpool_leave_cs(worker->sync_obj);
-
-        int tile_to_process = tile_idx;
+        // Tile ownership is guaranteed via atomic counter.
 
         BEGIN_CPU_TRACE("DecodeTile");
 
-        tile_work_t *work = &work_queue[tile_to_process];
+        // Commenting out unnecessary ON_DECODING assignment.
+        //
+        //oapv_tpool_enter_cs(worker->sync_obj);
+        //work->status = DEC_TILE_STAT_ON_DECODING;
+        //oapv_tpool_leave_cs(worker->sync_obj);
 
         oapv_bs_t tile_bs;
         oapv_bsr_init(&tile_bs, work->data, work->size, NULL);
@@ -3413,12 +3414,14 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
         memcpy(local_ctx.comp_sft, mip_ctx->comp_sft, sizeof(local_ctx.comp_sft));
 
         int ret = oapvd_vlc_tile_header(&tile_bs, &local_ctx, &tile.th);
+
         if(OAPV_FAILED(ret)) {
             work->status = DEC_TILE_STAT_ERROR;
             continue;
         }
 
         int num_comp = get_num_comp(mip_ctx->chroma_format_idc);
+
         for(int c = 0; c < num_comp; c++) {
             core->qp[c] = tile.th.tile_qp[c];
             u8 dq_scale = oapv_tbl_dq_scale[core->qp[c] % 6];
@@ -3464,6 +3467,7 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
             tile_for_comp.y = 0;
 
             ret = dec_tile_comp(&tile_for_comp, &local_ctx, core, &comp_bs, c, comp_stride_bytes, tile_dst);
+
             if(OAPV_FAILED(ret)) {
                 work->status = DEC_TILE_STAT_ERROR;
                 break;
@@ -3471,9 +3475,8 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
         }
 
         if(ret == OAPV_OK) {
-            work->status = DEC_TILE_STAT_DECODED;
-
             oapv_tpool_enter_cs(worker->sync_obj);
+            work->status = DEC_TILE_STAT_DECODED;
             (*worker->tiles_completed)++;
             oapv_tpool_leave_cs(worker->sync_obj);
         }
@@ -3901,7 +3904,7 @@ first_batch_done:
     /* Now start worker threads - they immediately find work ready */
     multi_mip_worker_t worker;
     worker.ctx = ctx;
-    worker.core = ctx->core[0];
+    worker.core = ctx->core[num_threads - 1];  /* Main thread will use the last one */
     worker.work_queue = work_queue;
     worker.num_tiles = work_queue_idx;
     worker.sync_obj = sync_obj;
@@ -4005,8 +4008,12 @@ first_batch_done:
 
     END_CPU_TRACE();
 
-    /* Wait for worker threads to complete */
+    /* Main thread helps decode after I/O completes */
     if(num_threads > 1) {
+        /* Main thread participates in decoding */
+        dec_thread_tile_selective_multi_mip(&worker);
+
+        /* Wait for worker threads to complete */
         for(int t = 0; t < num_worker_threads; t++) {
             int thread_ret;
             tpool->join(ctx->thread_id[t], &thread_ret);
