@@ -3114,7 +3114,7 @@ static int oapvd_locate_all_mips(oapvd_istream_t *istream, oapv_stream_info_t *s
 
         oapv_pbuh_t pbuh;
         int ret = oapvd_vlc_pbu_header(&pbu_header_bs, &pbuh);
-        
+
         if(OAPV_FAILED(ret)) {
             return ret;
         }
@@ -3325,6 +3325,11 @@ typedef struct {
     oapv_sync_obj_t sync_obj;
     volatile int *tiles_completed;
     perf_metrics_t *metrics;
+
+    // Pipeline synchronization for batched I/O
+    volatile int *tiles_ready;      // Count of tiles with data loaded (NOT_DECODED status)
+    volatile int *io_complete;      // Flag: 1 when all I/O finished
+    volatile int *next_tile_idx;    // Atomic counter for next tile to claim (eliminates O(n²) scanning)
 } multi_mip_worker_t;
 
 /*
@@ -3341,21 +3346,39 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
     int num_tiles = worker->num_tiles;
 
     while(1) {
-        int tile_to_process = -1;
+        // Atomically claim next tile index
+        int tile_idx = oapv_tpool_atomic_inc(worker->sync_obj, worker->next_tile_idx) - 1;
 
-        oapv_tpool_enter_cs(worker->sync_obj);
-        for(int i = 0; i < num_tiles; i++) {
-            if(work_queue[i].status == DEC_TILE_STAT_NOT_DECODED) {
-                work_queue[i].status = DEC_TILE_STAT_ON_DECODING;
-                tile_to_process = i;
-                break;
-            }
-        }
-        oapv_tpool_leave_cs(worker->sync_obj);
-
-        if(tile_to_process == -1) {
+        // Check if we've exceeded total tile count
+        if(tile_idx >= num_tiles) {
             break;
         }
+
+        // Wait for tile data to be loaded (batched I/O)
+        while(work_queue[tile_idx].status == DEC_TILE_STAT_NOT_READY) {
+            if(*worker->io_complete && work_queue[tile_idx].status == DEC_TILE_STAT_NOT_READY) {
+                // I/O complete but tile still not ready - shouldn't happen, exit
+                break;
+            }
+            // Wait for I/O batch to load this tile
+            #ifdef _WIN32
+            Sleep(0);
+            #else
+            sched_yield();
+            #endif
+        }
+
+        // Skip if tile wasn't loaded (edge case)
+        if(work_queue[tile_idx].status != DEC_TILE_STAT_NOT_DECODED) {
+            continue;
+        }
+
+        // Mark tile as being decoded
+        oapv_tpool_enter_cs(worker->sync_obj);
+        work_queue[tile_idx].status = DEC_TILE_STAT_ON_DECODING;
+        oapv_tpool_leave_cs(worker->sync_obj);
+
+        int tile_to_process = tile_idx;
 
         BEGIN_CPU_TRACE("DecodeTile");
 
@@ -3552,7 +3575,9 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
     BEGIN_CPU_TRACE("Locate Mips");
 
     /* Build array of requested mip levels for batch lookup */
+
     int *requested_mips = (int *)oapv_malloc(multi_mip_decode->num_mips * sizeof(int));
+
     if(!requested_mips) {
         oapv_mfree(mip_infos);
         oapv_mfree(mip_contexts);
@@ -3578,6 +3603,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
     /* Locate all requested mip levels in a single traversal */
     ret = oapvd_locate_all_mips(istream, &stream_info, requested_mips,
                                 multi_mip_decode->num_mips, locations, &metrics);
+
     if(OAPV_FAILED(ret)) {
         oapv_mfree(locations);
         oapv_mfree(requested_mips);
@@ -3727,7 +3753,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
             work->tile_idx = tile_idx;
             work->col = col;
             work->row = row;
-            work->status = DEC_TILE_STAT_NOT_DECODED;
+            work->status = DEC_TILE_STAT_NOT_READY;  /* Tile data not yet loaded */
             work->mip_ctx = mip_ctx;  /* Point to shared mip context */
 
             if(fh->tile_size != NULL && tile_idx < OAPV_MAX_TILES) {
@@ -3757,6 +3783,13 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
         }
     }
     oapv_mfree(mip_infos);
+
+    /* Early return if no tiles to decode (metadata-only call) */
+    if(work_queue_idx == 0) {
+        oapv_mfree(work_queue);
+        oapv_mfree(mip_contexts);
+        return OAPV_OK;
+    }
 
     /* Sort work queue by file offset to enable coalesced I/O */
     for(int i = 0; i < work_queue_idx - 1; i++) {
@@ -3797,9 +3830,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
         }
     }
 
-    BEGIN_CPU_TRACE("Read Blocks");
-
-    /* Perform coalesced I/O operations */
+    /* Pre-allocate all read block buffers (done once for simplicity) */
     for(int b = 0; b < num_blocks; b++) {
         read_blocks[b].total_size = (u32)(read_blocks[b].end_offset - read_blocks[b].start_offset);
         read_blocks[b].buffer = (u8*)oapv_malloc(read_blocks[b].total_size);
@@ -3812,29 +3843,62 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
             oapv_mfree(work_queue);
             return OAPV_ERR_OUT_OF_MEMORY;
         }
-
-        istream->seek(istream, (long)read_blocks[b].start_offset, SEEK_SET);
-        istream->read(istream, read_blocks[b].buffer, read_blocks[b].total_size, 1);
-        metrics.bytes_read += read_blocks[b].total_size;
-
-        for(int t = 0; t < read_blocks[b].num_tiles; t++) {
-            int tile_idx = read_blocks[b].first_tile_idx + t;
-            u64 tile_offset_in_block = work_queue[tile_idx].file_offset - read_blocks[b].start_offset;
-            work_queue[tile_idx].data = read_blocks[b].buffer + tile_offset_in_block;
-        }
     }
-
-    END_CPU_TRACE();
-
-    metrics.io_end_ns = get_time_ns();
-    metrics.decode_start_ns = get_time_ns();
 
     int num_threads = ctx->threads;
     if(num_threads <= 0) num_threads = 1;
 
+    /* Pipeline synchronization variables */
     oapv_sync_obj_t sync_obj = oapv_tpool_sync_obj_create();
     volatile int tiles_completed = 0;
+    volatile int tiles_ready = 0;      // Count of tiles ready to decode
+    volatile int io_complete = 0;       // Flag: all I/O finished
+    volatile int next_tile_idx = 0;     // Atomic counter for tile claiming
 
+    /* Load first batch BEFORE starting worker threads to avoid spinning */
+    BEGIN_CPU_TRACE("Batched I/O");
+
+    int batch_size = num_threads;  // Tiles per batch
+    int tiles_loaded = 0;
+    int block_idx = 0;  // Track current read block
+
+    /* Load first batch synchronously */
+    int tile_idx_in_block = 0;  // Track position within current block
+    while(tiles_loaded < batch_size && block_idx < num_blocks) {
+        int b = block_idx;
+
+        /* Read coalesced block if we're starting a new block */
+        if(tile_idx_in_block == 0) {
+            istream->seek(istream, (long)read_blocks[b].start_offset, SEEK_SET);
+            istream->read(istream, read_blocks[b].buffer, read_blocks[b].total_size, 1);
+            metrics.bytes_read += read_blocks[b].total_size;
+        }
+
+        /* Assign data pointers for tiles in this block */
+        for(int t = tile_idx_in_block; t < read_blocks[b].num_tiles; t++) {
+            int tile_idx = read_blocks[b].first_tile_idx + t;
+            u64 tile_offset_in_block = work_queue[tile_idx].file_offset - read_blocks[b].start_offset;
+            work_queue[tile_idx].data = read_blocks[b].buffer + tile_offset_in_block;
+            work_queue[tile_idx].status = DEC_TILE_STAT_NOT_DECODED;  /* Mark ready */
+            tiles_loaded++;
+
+            if(tiles_loaded >= batch_size) {
+                tile_idx_in_block = t + 1;  /* Remember where we stopped */
+                goto first_batch_done;  /* Exit both loops */
+            }
+        }
+
+        /* Finished this block, move to next */
+        block_idx++;
+        tile_idx_in_block = 0;
+    }
+
+first_batch_done:
+    tiles_ready = tiles_loaded;
+
+    metrics.decode_start_ns = get_time_ns();
+
+    /* Now start worker threads - they immediately find work ready */
     multi_mip_worker_t worker;
     worker.ctx = ctx;
     worker.core = ctx->core[0];
@@ -3842,11 +3906,17 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
     worker.num_tiles = work_queue_idx;
     worker.sync_obj = sync_obj;
     worker.tiles_completed = &tiles_completed;
+    worker.tiles_ready = &tiles_ready;
+    worker.io_complete = &io_complete;
+    worker.next_tile_idx = &next_tile_idx;
     worker.metrics = &metrics;
 
+    oapv_tpool_t *tpool = ctx->tpool;
+    multi_mip_worker_t **thread_workers = NULL;
+    int num_worker_threads = num_threads;
+
     if(num_threads > 1) {
-        oapv_tpool_t *tpool = ctx->tpool;
-        multi_mip_worker_t **thread_workers = (multi_mip_worker_t **)oapv_malloc((num_threads - 1) * sizeof(multi_mip_worker_t *));
+        thread_workers = (multi_mip_worker_t **)oapv_malloc(num_worker_threads * sizeof(multi_mip_worker_t *));
         if(!thread_workers) {
             oapv_tpool_sync_obj_delete(&sync_obj);
             for(int b = 0; b < num_blocks; b++) {
@@ -3858,7 +3928,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
             return OAPV_ERR_OUT_OF_MEMORY;
         }
 
-        for(int t = 0; t < num_threads - 1; t++) {
+        for(int t = 0; t < num_worker_threads; t++) {
             thread_workers[t] = (multi_mip_worker_t *)oapv_malloc(sizeof(multi_mip_worker_t));
             if(!thread_workers[t]) {
                 for(int j = 0; j < t; j++) {
@@ -3871,24 +3941,80 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
                 }
                 oapv_mfree(read_blocks);
                 oapv_mfree(mip_contexts);
-            oapv_mfree(work_queue);
+                oapv_mfree(work_queue);
                 return OAPV_ERR_OUT_OF_MEMORY;
             }
             *thread_workers[t] = worker;
-            thread_workers[t]->core = ctx->core[t + 1];
+            thread_workers[t]->core = ctx->core[t];
 
             tpool->run(ctx->thread_id[t], dec_thread_tile_selective_multi_mip, thread_workers[t]);
         }
+    }
 
-        dec_thread_tile_selective_multi_mip(&worker);
+    /* Main thread continues loading remaining batches while workers decode */
+    for(int b = block_idx; b < num_blocks; b++) {
+        /* Read coalesced block if not already read (first block may be partially processed) */
+        int start_tile = (b == block_idx) ? tile_idx_in_block : 0;
 
-        for(int t = 0; t < num_threads - 1; t++) {
+        if(start_tile == 0) {
+            istream->seek(istream, (long)read_blocks[b].start_offset, SEEK_SET);
+            istream->read(istream, read_blocks[b].buffer, read_blocks[b].total_size, 1);
+            metrics.bytes_read += read_blocks[b].total_size;
+        }
+
+        /* Assign data pointers and mark tiles ready in batches */
+        for(int t = start_tile; t < read_blocks[b].num_tiles; t++) {
+            int tile_idx = read_blocks[b].first_tile_idx + t;
+            u64 tile_offset_in_block = work_queue[tile_idx].file_offset - read_blocks[b].start_offset;
+            work_queue[tile_idx].data = read_blocks[b].buffer + tile_offset_in_block;
+            tiles_loaded++;
+
+            /* Batch boundary: make tiles available to workers */
+            if(tiles_loaded % batch_size == 0 || tile_idx == work_queue_idx - 1) {
+
+                int batch_start = tiles_loaded - (tiles_loaded % batch_size);
+
+                if(tiles_loaded % batch_size == 0) {
+                    batch_start = tiles_loaded - batch_size;
+                } else {
+                    batch_start = (tiles_loaded / batch_size) * batch_size;
+                }
+                int batch_end = tiles_loaded;
+
+                oapv_tpool_enter_cs(sync_obj);
+
+                /* Tag batch as read but not decoded yet (NOT_READY -> NOT_DECODED) */
+
+                for(int i = batch_start; i < batch_end; i++) {
+                    if(work_queue[i].status == DEC_TILE_STAT_NOT_READY) {
+                        work_queue[i].status = DEC_TILE_STAT_NOT_DECODED;
+                    }
+                }
+
+                /* Signal workers that there are new tiles available for decoding */
+                tiles_ready = batch_end;
+
+                oapv_tpool_leave_cs(sync_obj);
+            }
+        }
+    }
+
+    /* Signal I/O complete */
+    io_complete = 1;
+    metrics.io_end_ns = get_time_ns();
+
+    END_CPU_TRACE();
+
+    /* Wait for worker threads to complete */
+    if(num_threads > 1) {
+        for(int t = 0; t < num_worker_threads; t++) {
             int thread_ret;
             tpool->join(ctx->thread_id[t], &thread_ret);
             oapv_mfree(thread_workers[t]);
         }
         oapv_mfree(thread_workers);
     } else {
+        /* Single-threaded: main thread does all work */
         dec_thread_tile_selective_multi_mip(&worker);
     }
 
@@ -3905,7 +4031,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
 
     double io_time_ms = (metrics.io_end_ns - metrics.io_start_ns) / 1000000.0;
     double decode_time_ms = (metrics.decode_end_ns - metrics.decode_start_ns) / 1000000.0;
-    double total_time_ms = io_time_ms + decode_time_ms;
+    double total_time_ms = (metrics.decode_end_ns - metrics.io_start_ns) / 1000000.0;
 
     log_msg(OAPV_LOG_INFO, "\nMulti-Mip Performance:\n");
     log_msg(OAPV_LOG_INFO, "  Mips decoded: %d\n", multi_mip_decode->num_mips);

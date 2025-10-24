@@ -328,7 +328,8 @@ struct oapve_ctx {
 // start of decoder code
 #if ENABLE_DECODER
 ///////////////////////////////////////////////////////////////////////////////
-#define DEC_TILE_STAT_NOT_DECODED 0
+#define DEC_TILE_STAT_NOT_READY   -2  // Tile data not yet loaded from disk
+#define DEC_TILE_STAT_NOT_DECODED 0   // Data loaded, ready to decode
 #define DEC_TILE_STAT_ON_DECODING 1
 #define DEC_TILE_STAT_DECODED     2
 #define DEC_TILE_STAT_ERROR       3
