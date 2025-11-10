@@ -305,7 +305,7 @@ struct oapv_memory_callbacks {
 typedef struct oapv_cputrace_callbacks oapv_cputrace_callbacks_t;
 struct oapv_cputrace_callbacks {
     void (*begin_event)(const char *name, const char *file, int line);
-    void (*end_event)();
+    void (*end_event)(void);
 };
 
 /*****************************************************************************
@@ -718,10 +718,10 @@ struct oapv_mip_request {
     int status;                             // OAPV_OK if successful, error code otherwise
 
     // Frame metadata (filled by decoder)
-    int frame_width_mb_aligned;             // Frame width from mip level metadata
-    int frame_height_mb_aligned;            // Frame height from mip level metadata
-    int tile_width_mb_aligned;              // Tile width in pixels (converted from MBs)
-    int tile_height_mb_aligned;             // Tile height in pixels (converted from MBs)
+    int frame_width_mb_aligned;             // Frame width in pixels aligned to macroblock boundaries from mip level metadata
+    int frame_height_mb_aligned;            // Frame height in pixels aligned to macroblock boundaries from mip level metadata
+    int tile_width_mb_aligned;              // Tile width in pixels aligned to macroblock boundaries (converted from MBs)
+    int tile_height_mb_aligned;             // Tile height in pixels aligned to macroblock boundaries (converted from MBs)
     int bit_depth;                          // Bit depth from frame metadata
     int chroma_format;                      // Chroma format from frame metadata
 };
