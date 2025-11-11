@@ -154,6 +154,17 @@ void oapv_trace_line(char *pre);
 #endif
 
 /*****************************************************************************
+ * file operations
+ *****************************************************************************/
+#ifdef _WIN32
+#define oapv_ftell _ftelli64
+#define oapv_fseek _fseeki64
+#else
+#define oapv_ftell ftell
+#define oapv_fseek fseek
+#endif
+
+/*****************************************************************************
  * memory operations
  *****************************************************************************/
 void *oapv_internal_malloc(size_t size);

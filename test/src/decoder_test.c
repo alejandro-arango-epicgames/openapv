@@ -905,18 +905,16 @@ void validate_full(oapv_imgb_t* frame_buffer, int num_tiles) {
     }
 }
 
-long file_istream_tell(oapvd_istream_t* istream)
+int64_t file_istream_tell(oapvd_istream_t *istream)
 {
     FILE *fp = (FILE *)istream->data;
-
-    return ftell(fp);
+    return oapv_ftell(fp);
 }
 
-int file_istream_seek(oapvd_istream_t *istream, long offset, int origin)
+int file_istream_seek(oapvd_istream_t *istream, int64_t offset, int origin)
 {
     FILE *fp = (FILE *)istream->data;
-
-    return fseek(fp, offset, origin);
+    return oapv_fseek(fp, offset, origin);
 }
 
 size_t file_istream_read(oapvd_istream_t *istream, void* buffer, size_t size, size_t count)

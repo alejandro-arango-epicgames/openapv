@@ -403,9 +403,9 @@ struct oapvd_ctx {
     int                     use_frm_hash;
 
     /* Tile offset cache for optimized selective decoding */
-    long                   *tile_offsets_cache;      // Pre-calculated file offsets for all tiles
+    int64_t                *tile_offsets_cache;       // Pre-calculated file offsets for all tiles
     int                     tile_cache_valid;         // 1 if cache is valid, 0 if needs rebuild
-    long                    tile_cache_frame_offset;  // Frame data start offset for cached tiles
+    int64_t                 tile_cache_frame_offset;  // Frame data start offset for cached tiles
     int                     tile_cache_num_tiles;    // Number of tiles in cache
 
     /* platform specific data, if needed */
@@ -430,14 +430,6 @@ typedef struct {
     volatile int buffer_in_use[OAPV_MAX_THREADS][4]; // Usage flags
     u32 malloc_threshold;                       // Threshold for malloc fallback
 } oapv_tile_buffer_mgr_t;
-
-typedef struct {
-    int tile_col, tile_row;                     // Tile coordinates
-    int mip_level;                              // Mip level
-    long file_offset;                           // Position in file
-    u32 compressed_size;                        // Size of compressed data
-    volatile int status;                        // Processing status
-} oapv_tile_work_item_t;
 
 #define OAPV_FRAME_INFO_BYTE (112)
 #define OAPV_PBU_HEADER_BYTE (32)

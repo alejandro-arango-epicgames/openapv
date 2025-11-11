@@ -738,8 +738,8 @@ struct oapv_multi_mip_decode {
 typedef struct oapvd_istream oapvd_istream_t;
 struct oapvd_istream {
     void *data;
-    long (*tell)(oapvd_istream_t *bitr);
-    int (*seek)(oapvd_istream_t *bitr, long offset, int origin);
+    long long (*tell)(oapvd_istream_t *bitr);
+    int (*seek)(oapvd_istream_t *bitr, long long offset, int origin);
     size_t (*read)(oapvd_istream_t *bitr, void *buffer, size_t size, size_t count);
 };
 

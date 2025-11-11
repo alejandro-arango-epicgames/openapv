@@ -2348,9 +2348,9 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
 }
 
 // Calculate file offsets for all tiles based on frame header
-static int calculate_tile_offsets(oapv_fh_t *fh, long frame_data_start, long *tile_offsets)
+static int calculate_tile_offsets(oapv_fh_t *fh, int64_t frame_data_start, int64_t *tile_offsets)
 {
-    long current_offset = frame_data_start;
+    int64_t current_offset = frame_data_start;
     int num_tiles = 0;
     
     // Calculate number of tiles
@@ -2370,7 +2370,7 @@ static int calculate_tile_offsets(oapv_fh_t *fh, long frame_data_start, long *ti
 }
 
 // Build tile offset cache for the current frame
-static int oapvd_build_tile_cache(oapvd_ctx_t *ctx, long frame_data_offset)
+static int oapvd_build_tile_cache(oapvd_ctx_t *ctx, int64_t frame_data_offset)
 {
     // Calculate number of tiles
     int tile_w = ctx->fh.tile_width_in_mbs * OAPV_MB_W;
@@ -2384,7 +2384,7 @@ static int oapvd_build_tile_cache(oapvd_ctx_t *ctx, long frame_data_offset)
         if(ctx->tile_offsets_cache) {
             oapv_mfree(ctx->tile_offsets_cache);
         }
-        ctx->tile_offsets_cache = (long*)oapv_malloc(num_tiles * sizeof(long));
+        ctx->tile_offsets_cache = (int64_t *)oapv_malloc(num_tiles * sizeof(int64_t));
         if(!ctx->tile_offsets_cache) {
             return OAPV_ERR_OUT_OF_MEMORY;
         }
@@ -2408,7 +2408,7 @@ static void oapvd_invalidate_tile_cache(oapvd_ctx_t *ctx)
 }
 
 // Get tile offset from cache (O(1) lookup)
-static long oapvd_get_tile_offset(oapvd_ctx_t *ctx, int tile_index)
+static int64_t oapvd_get_tile_offset(oapvd_ctx_t *ctx, int tile_index)
 {
     if(!ctx->tile_cache_valid || !ctx->tile_offsets_cache ||
        tile_index < 0 || tile_index >= ctx->tile_cache_num_tiles) {
@@ -2514,7 +2514,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     
     // For selective I/O: Read entire AU first to parse headers and get tile sizes
     // Then we'll seek back and read only the target tile data
-    long au_start_pos = istream->tell(istream);
+    int64_t au_start_pos = istream->tell(istream);
     
     u8  *au_buffer = (u8 *)oapv_malloc(au_size);
     if(!au_buffer) {
@@ -2671,8 +2671,8 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
 
     // Calculate frame data start position within the target mip level frame
     // After parsing frame header, bs.cur points to start of frame data (tiles)
-    long frame_data_offset_in_au = bs.cur - (u8*)bitb.addr; // Offset from AU start
-    long abs_frame_data_offset = au_start_pos + frame_data_offset_in_au;
+    int64_t frame_data_offset_in_au = bs.cur - (u8*)bitb.addr; // Offset from AU start
+    int64_t abs_frame_data_offset = au_start_pos + frame_data_offset_in_au;
 
     // Build tile offset cache for this frame if needed
     if(!ctx->tile_cache_valid || ctx->tile_cache_frame_offset != abs_frame_data_offset) {
@@ -2684,7 +2684,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
     }
 
     // Get target tile offset from cache
-    long tile_offset_abs = oapvd_get_tile_offset(ctx, tile_index);
+    int64_t tile_offset_abs = oapvd_get_tile_offset(ctx, tile_index);
     if(tile_offset_abs < 0) {
         log_msg(OAPV_LOG_ERROR, "Invalid tile index %d\n", tile_index);
         oapv_mfree(au_buffer);
@@ -2696,7 +2696,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
 
     // Calculate absolute file position for target tile
     // Skip the 4-byte size prefix to point to actual tile data
-    long tile_file_position = tile_offset_abs + 4;
+    int64_t tile_file_position = tile_offset_abs + 4;
     
     // Free the full AU buffer - we don't need it anymore
     oapv_mfree(au_buffer);
@@ -2918,15 +2918,15 @@ static u64 get_time_ns() {
 // Stream information structure
 typedef struct {
     u32 au_size;
-    long au_start_pos;
+    int64_t au_start_pos;
     u32 signature;
 } oapv_stream_info_t;
 
 // Mip location information
 typedef struct {
-    long frame_file_pos;
+    int64_t frame_file_pos;
     u32 pbu_size;
-    long frame_data_offset;
+    int64_t frame_data_offset;
     int found;
 } oapv_mip_location_t;
 
@@ -2988,7 +2988,7 @@ static int oapvd_locate_mip_frame(oapvd_istream_t *istream, oapv_stream_info_t *
 
     // Higher mip levels: traverse PBUs sequentially
     int current_frame = 0;
-    long current_pos = stream_info->au_start_pos + 4; // Skip signature
+    int64_t current_pos = stream_info->au_start_pos + 4; // Skip signature
 
     while(current_pos < stream_info->au_start_pos + stream_info->au_size &&
           current_frame <= target_mip) {
@@ -3079,7 +3079,7 @@ static int oapvd_locate_all_mips(oapvd_istream_t *istream, oapv_stream_info_t *s
 
     // Single traversal through PBU stream
     int current_frame = 0;
-    long current_pos = stream_info->au_start_pos + 4; // Skip signature
+    int64_t current_pos = stream_info->au_start_pos + 4; // Skip signature
     int found_count = 0;
 
     while(current_pos < stream_info->au_start_pos + stream_info->au_size &&
@@ -3522,7 +3522,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
     }
 
     u32 au_size = stream_info.au_size;
-    long au_start_pos = stream_info.au_start_pos;
+    int64_t au_start_pos = stream_info.au_start_pos;
 
     int total_tiles = 0;
     for(int m = 0; m < multi_mip_decode->num_mips; m++) {
@@ -3550,8 +3550,8 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
     typedef struct {
         int mip_level;
         oapv_mip_request_t *mip_req;
-        long frame_file_offset;
-        long frame_data_offset;
+        int64_t frame_file_offset;
+        int64_t frame_data_offset;
         u32 pbu_size;
         oapv_fh_t frame_header;
         int num_tiles_in_frame;
@@ -3872,7 +3872,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
 
         /* Read coalesced block if we're starting a new block */
         if(tile_idx_in_block == 0) {
-            istream->seek(istream, (long)read_blocks[b].start_offset, SEEK_SET);
+            istream->seek(istream, (int64_t)read_blocks[b].start_offset, SEEK_SET);
             istream->read(istream, read_blocks[b].buffer, read_blocks[b].total_size, 1);
             metrics.bytes_read += read_blocks[b].total_size;
         }
@@ -3960,7 +3960,7 @@ first_batch_done:
         int start_tile = (b == block_idx) ? tile_idx_in_block : 0;
 
         if(start_tile == 0) {
-            istream->seek(istream, (long)read_blocks[b].start_offset, SEEK_SET);
+            istream->seek(istream, (int64_t)read_blocks[b].start_offset, SEEK_SET);
             istream->read(istream, read_blocks[b].buffer, read_blocks[b].total_size, 1);
             metrics.bytes_read += read_blocks[b].total_size;
         }

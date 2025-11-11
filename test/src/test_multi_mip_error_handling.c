@@ -9,14 +9,14 @@ typedef struct {
     FILE *fp;
 } file_istream_data_t;
 
-static long file_istream_tell(oapvd_istream_t *stream) {
+static int64_t file_istream_tell(oapvd_istream_t *stream) {
     file_istream_data_t *data = (file_istream_data_t*)stream->data;
-    return ftell(data->fp);
+    return oapv_ftell(data->fp);
 }
 
-static int file_istream_seek(oapvd_istream_t *stream, long offset, int origin) {
+static int file_istream_seek(oapvd_istream_t *stream, int64_t offset, int origin) {
     file_istream_data_t *data = (file_istream_data_t*)stream->data;
-    return fseek(data->fp, offset, origin);
+    return oapv_fseek(data->fp, offset, origin);
 }
 
 static size_t file_istream_read(oapvd_istream_t *stream, void *buffer, size_t size, size_t count) {
