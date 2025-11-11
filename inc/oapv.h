@@ -36,8 +36,6 @@
 extern "C" {
 #endif
 
-#include <stdio.h>
-
 #if defined(ANDROID) || defined(OAPV_STATIC_DEFINE)
     #define OAPV_EXPORT
 #else
