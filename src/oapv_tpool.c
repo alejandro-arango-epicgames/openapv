@@ -41,6 +41,16 @@
 
 #define WINDOWS_MUTEX_SYNC 0
 
+void oapv_tpool_yield()
+{
+    #if !defined(WIN32) && !defined(WIN64)
+    sched_yield();
+    #else
+    Sleep(0);
+    #endif
+}
+
+
 #if !defined(WIN32) && !defined(WIN64)
 
 typedef struct thread_ctx {

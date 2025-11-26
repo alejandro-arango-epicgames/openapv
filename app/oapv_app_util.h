@@ -234,6 +234,7 @@ static __inline oapv_clk_t oapv_clk_sec(oapv_clk_t clk)
 
 #define CLIP_VAL(n, min, max) (((n) > (max)) ? (max) : (((n) < (min)) ? (min) : (n)))
 #define ALIGN_VAL(val, align) ((((val) + (align) - 1) / (align)) * (align))
+#define MAX_VAL(a,b) (((a) > (b)) ? (a) : (b))
 
 /* Function for atomic increment:
    This function might need to modify according to O/S or CPU platform
@@ -795,11 +796,6 @@ static void imgb_calc_mip(oapv_imgb_t *dst_img, oapv_imgb_t *src_img)
     {
         imgb_calc_mip_8(dst_img, src_img);
     }
-}
-
-static int calculate_num_mips(int w, int h)
-{
-    return 1 + (int)floor(log2(max(w, h)));
 }
 
 static void measure_psnr(oapv_imgb_t *org, oapv_imgb_t *rec, double psnr[4], int bit_depth)

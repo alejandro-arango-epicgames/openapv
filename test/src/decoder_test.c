@@ -905,13 +905,13 @@ void validate_full(oapv_imgb_t* frame_buffer, int num_tiles) {
     }
 }
 
-int64_t file_istream_tell(oapvd_istream_t *istream)
+long long file_istream_tell(oapvd_istream_t *istream)
 {
     FILE *fp = (FILE *)istream->data;
     return oapv_ftell(fp);
 }
 
-int file_istream_seek(oapvd_istream_t *istream, int64_t offset, int origin)
+int file_istream_seek(oapvd_istream_t *istream, long long offset, int origin)
 {
     FILE *fp = (FILE *)istream->data;
     return oapv_fseek(fp, offset, origin);
@@ -1006,12 +1006,8 @@ static int decode_mip(const char* input_file, int mip_level, oapvd_t decoder_id)
     // Reset stat for actual decode (metadata call already updated it)
     stat.read = 0;
 
-    clock_t start_time = clock();
-
     // Run the decode
     ret = oapvd_decode_selective_multi(decoder_id, &istream, sel_decode, 0, &stat);
-
-    clock_t end_time = clock();
 
     if(OAPV_SUCCEEDED(ret)) {
         printf("SUCCESS: Decode completed\n");
@@ -1296,7 +1292,7 @@ int run_multi_mip_test_config(const char* input_file, const test_config_t* confi
         printf("\n=== Performance Comparison: Multi-mip vs Individual ===\n");
 
         // Time the multi-mip approach (already done above)
-        double multi_mip_time = 0;
+        // double multi_mip_time = 0;
         // TODO: Extract timing from above loop
 
         // Time the individual mip approach

@@ -35,6 +35,7 @@
 #include <windows.h>
 #else
 #include <time.h>
+#include <stdarg.h>
 #endif
 
 static oapv_log_callback_t current_log_callback = NULL;
@@ -3367,12 +3368,7 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
             }
 
             // Wait for I/O batch to load this tile
-
-            #ifdef _WIN32
-            Sleep(0);
-            #else
-            sched_yield();
-            #endif
+            oapv_tpool_yield();
         }
 
         // Tile ownership is guaranteed via atomic counter.
@@ -3520,9 +3516,6 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
     if(OAPV_FAILED(ret)) {
         return ret;
     }
-
-    u32 au_size = stream_info.au_size;
-    int64_t au_start_pos = stream_info.au_start_pos;
 
     int total_tiles = 0;
     for(int m = 0; m < multi_mip_decode->num_mips; m++) {

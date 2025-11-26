@@ -27,12 +27,12 @@ typedef struct {
     FILE *fp;
 } file_istream_data_t;
 
-static int64_t file_istream_tell(oapvd_istream_t *stream) {
+static long long file_istream_tell(oapvd_istream_t *stream) {
     file_istream_data_t *data = (file_istream_data_t*)stream->data;
     return oapv_ftell(data->fp);
 }
 
-static int file_istream_seek(oapvd_istream_t *stream, int64_t offset, int origin) {
+static int file_istream_seek(oapvd_istream_t *stream, long long offset, int origin) {
     file_istream_data_t *data = (file_istream_data_t*)stream->data;
     return oapv_fseek(data->fp, offset, origin);
 }
@@ -139,7 +139,7 @@ static int test_sequential_multi_calls(
     };
 
     u64 total_start = get_time_ns();
-    u64 total_io_ns = 0;
+    //u64 total_io_ns = 0;
     u64 total_decode_ns = 0;
     u32 total_bytes = 0;
 

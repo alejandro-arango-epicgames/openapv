@@ -42,6 +42,8 @@ extern "C" {
     #include <oapv/oapv_exports.h>
 #endif
 
+#include <stddef.h>
+
 /*****************************************************************************
  * version and related macro
  * the version string follows the rule of API_SET.MAJOR.MINOR.PATCH

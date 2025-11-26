@@ -697,7 +697,7 @@ int main(int argc, const char **argv)
     const int      num_frames = NUM_PRI_FRMS; // number of primary frames in an access unit
     int            num_mips = 0;              // [TMV] number of mipmaps
     int            start_mip_idx = 0;
-    char           fname_out_au[256];         // filename for given AU when outputting one AU per file.
+    char           fname_out_au[256+128];     // filename for given AU when outputting one AU per file.
 
     // print logo
     logv2("  ____                ___   ___ _   __\n");
@@ -863,7 +863,6 @@ int main(int argc, const char **argv)
     }
 
     // TMV -- Prep mip encoding parameters --
-    //num_mips = calculate_num_mips(param->w, param->h) - 1; // exclude mip 0, already primary frame above.
     num_mips = 0;
 
     if(args_var->tmv_mips) {
@@ -890,8 +889,8 @@ int main(int argc, const char **argv)
 
             num_mips++;
 
-            w = max(w / 2, 1);
-            h = max(h / 2, 1);
+            w = MAX_VAL(w / 2, 1);
+            h = MAX_VAL(h / 2, 1);
         }
 
         // Log mipmap levels that will be generated
@@ -1006,8 +1005,8 @@ int main(int argc, const char **argv)
         int frame_idx = start_mip_idx + mip_idx;
         // Allocate the mip with codec format and bitdepth directly, mips are calculated from already converted imgb.
         ifrms.frm[frame_idx].imgb = imgb_create(w, h, OAPV_CS_SET(cfmt, codec_depth, 0));
-        w = max(w / 2, 1);
-        h = max(h / 2, 1);
+        w = MAX_VAL(w / 2, 1);
+        h = MAX_VAL(h / 2, 1);
     }
 
     ifrms.num_frms += num_mips;
