@@ -3416,7 +3416,12 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
             continue;
         }
 
+        // Keep track of the tile header size to be able to calculate the start of each components 
+        // from the start of the work buffer (see component loop below).
+        size_t tile_header_size = (BSR_GET_CUR(&tile_bs))-tile_bs.beg;
+
         int num_comp = get_num_comp(mip_ctx->chroma_format_idc);
+        oapv_assert_rv(mip_ctx->num_comp == num_comp, OAPV_ERR_INVALID_ARGUMENT);
 
         for(int c = 0; c < num_comp; c++) {
             core->qp[c] = tile.th.tile_qp[c];
@@ -3450,12 +3455,14 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
             u16 *tile_dst = (u16*)tile_dst_bytes;
 
             oapv_bs_t comp_bs;
-            long comp_data_offset = 0;
+
+            // Calculate the start of the component in the work data: start_of_work_buffer + tile_header_size + prev_tile_comp_sizes
+            size_t comp_data_offset = 0;
             for(int prev_c = 0; prev_c < c; prev_c++) {
                 comp_data_offset += tile.th.tile_data_size[prev_c];
             }
 
-            oapv_bsr_init(&comp_bs, work->data + (tile_bs.cur - tile_bs.beg) + comp_data_offset,
+            oapv_bsr_init(&comp_bs, work->data + tile_header_size + comp_data_offset,
                         tile.th.tile_data_size[c], NULL);
 
             oapvd_tile_t tile_for_comp = tile;
