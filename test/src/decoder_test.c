@@ -704,10 +704,86 @@ void delete_frame_buffer(oapv_imgb_t* imgb)
     }
 }
 
+int chroma_format_idc_to_color_format(int chroma_format_idc)
+{
+    return ((chroma_format_idc == 0)   ? OAPV_CF_YCBCR400
+            : (chroma_format_idc == 1) ? OAPV_CF_YCBCR420
+            : (chroma_format_idc == 2) ? OAPV_CF_YCBCR422
+            : (chroma_format_idc == 3) ? OAPV_CF_YCBCR444
+                                       : OAPV_CF_YCBCR4444);
+}
+
+int color_format_to_chroma_format_idc(int color_format)
+{
+    if(color_format == OAPV_CF_PLANAR2) {
+        return 2;
+    }
+    else {
+        return ((color_format == OAPV_CF_YCBCR400)   ? 0
+                : (color_format == OAPV_CF_YCBCR420) ? 1
+                : (color_format == OAPV_CF_YCBCR422) ? 2
+                : (color_format == OAPV_CF_YCBCR444) ? 3
+                                                     : 4);
+    }
+}
+
+// Retrieve the number of components for the given format.
+int get_num_components(int color_format)
+{
+    // todo: OAPV_CF_PLANAR2
+    switch(color_format) {
+    case OAPV_CF_YCBCR400:
+        return 1;
+    case OAPV_CF_YCBCR420:
+    case OAPV_CF_YCBCR422:
+    case OAPV_CF_YCBCR444:
+        return 3;
+    case OAPV_CF_YCBCR4444:
+        return 4;
+    default:
+        return 0; // not supported for now.
+    }
+}
+
+int get_chroma_width_factor(int color_format, int c)
+{
+    // todo: OAPV_CF_PLANAR2
+    switch(color_format) {
+    case OAPV_CF_YCBCR400:
+        return 1;
+    case OAPV_CF_YCBCR420:
+    case OAPV_CF_YCBCR422:
+        return c == 0 ? 1 : 2;
+    case OAPV_CF_YCBCR444:
+    case OAPV_CF_YCBCR4444:
+    default:
+        return 1; // not supported for now.
+    }
+}
+
+int get_chroma_height_factor(int color_format, int c)
+{
+    // todo: OAPV_CF_PLANAR2
+    switch(color_format) {
+    case OAPV_CF_YCBCR400:
+        return 1;
+    case OAPV_CF_YCBCR420:
+        return c == 0 ? 1 : 2;
+    case OAPV_CF_YCBCR422:
+    case OAPV_CF_YCBCR444:
+    case OAPV_CF_YCBCR4444:
+    default:
+        return 1; // not supported for now.
+    }
+}
+
 // Create frame buffer for specific component
-oapv_imgb_t* create_frame_buffer(int width, int height, int num_components, int bit_depth) {
+oapv_imgb_t *create_frame_buffer(int width, int height, int color_format, int bit_depth)
+{
     oapv_imgb_t *imgb = oapv_malloc(sizeof(oapv_imgb_t));
     if (!imgb) return NULL;
+
+    int num_components = get_num_components(color_format);
     
     memset(imgb, 0, sizeof(oapv_imgb_t));
 
@@ -716,14 +792,8 @@ oapv_imgb_t* create_frame_buffer(int width, int height, int num_components, int 
 
     for(int c = 0; c < num_components; ++c) {
 
-        if(c == 0) { // Y component
-            imgb->w[c] = width;
-            imgb->h[c] = height;
-        }
-        else { // U/V components (4:2:2)
-            imgb->w[c] = width / 2;
-            imgb->h[c] = height;
-        }
+        imgb->w[c] = width / get_chroma_width_factor(color_format, c);
+        imgb->h[c] = height / get_chroma_height_factor(color_format, c);
     
         // width and height need to be aligned to macroblock size
         imgb->aw[c] = ALIGN_VAL(imgb->w[c], OAPV_MB_W);
@@ -739,7 +809,7 @@ oapv_imgb_t* create_frame_buffer(int width, int height, int num_components, int 
         }
     }
     
-    imgb->cs = OAPV_CS_SET(OAPV_CF_YCBCR422, bit_depth, 0);
+    imgb->cs = OAPV_CS_SET(color_format, bit_depth, 0);
     imgb->refcnt = 1;
     
     return imgb;
@@ -755,14 +825,60 @@ void write_frame_y4m(const char* filename, oapv_imgb_t* frame_buffer) {
     
     int width = frame_buffer->w[0];
     int height = frame_buffer->h[0];
+    int color_format = OAPV_CS_GET_FORMAT(frame_buffer->cs);
+    int bit_depth = OAPV_CS_GET_BIT_DEPTH(frame_buffer->cs);
     int bd = OAPV_CS_GET_BYTE_DEPTH(frame_buffer->cs); /* byte unit */
     
-    // Y4M header for 4:2:2 10-bit
-    fprintf(fp, "YUV4MPEG2 W%d H%d F25:1 Ip A1:1 C422p10\n", width, height);
+    char color_buf[16] = { '\0' };
+    switch (color_format)
+    {
+    case OAPV_CF_YCBCR400:
+        if(bit_depth == 8)
+            strcpy(color_buf, "mono");
+        else if(bit_depth == 10)
+            strcpy(color_buf, "mono10");
+        break;
+    case OAPV_CF_YCBCR420:
+        if(bit_depth == 8)
+            strcpy(color_buf, "420mpeg2");
+        else if(bit_depth == 10)
+            strcpy(color_buf, "420p10");
+        break;
+    case OAPV_CF_YCBCR422:
+        if(bit_depth == 8)
+            strcpy(color_buf, "422");
+        else if(bit_depth == 10)
+            strcpy(color_buf, "422p10");
+        else if(bit_depth == 12)
+            strcpy(color_buf, "422p12");
+        break;
+    case OAPV_CF_YCBCR444:
+    case OAPV_CF_YCBCR4444: // for testing 4444 is considered 444.
+        if(bit_depth == 8)
+            strcpy(color_buf, "444");
+        else if(bit_depth == 10)
+            strcpy(color_buf, "444p10");
+        else if(bit_depth == 12)
+            strcpy(color_buf, "444p12");
+        break;
+    default:
+        break;
+    }
+
+    if(strlen(color_buf) == 0) {
+        printf("ERROR: Color format is not supported by y4m\n");
+        return;
+    }
+    
+    // Y4M header
+    fprintf(fp, "YUV4MPEG2 W%d H%d F25:1 Ip A1:1 C%s\n", width, height, color_buf);
     fprintf(fp, "FRAME\n");
+
+    // Note: because of 4444, we only save up to 3 components because y4m doesn't support 4.
+    int num_components = frame_buffer->np > 3 ? 3 : frame_buffer->np;
  
     // Note: Buffer stride may have some padding for MB alignement.
-    for(int i = 0; i < frame_buffer->np; i++) {
+    for(int i = 0; i < num_components; i++) {
         u8 *p8 = (u8 *)frame_buffer->a[i] + (frame_buffer->s[i] * frame_buffer->y[i]) + (frame_buffer->x[i] * bd);
 
         for(int j = 0; j < frame_buffer->h[i]; j++) {
@@ -784,15 +900,15 @@ int write_frame_raw(const char* filename, oapv_imgb_t* frame_buffer) {
     
     int width = frame_buffer->w[0];
     int height = frame_buffer->h[0];
-    int bit_depth = 10;
-    int chroma_format = 2; // 4:2:2
+    int bit_depth = OAPV_CS_GET_BIT_DEPTH(frame_buffer->cs);
+    int chroma_format_idc = color_format_to_chroma_format_idc(OAPV_CS_GET_FORMAT(frame_buffer->cs));
     int version = 1;
     
     // Write header
     fwrite(&width, sizeof(int), 1, fp);
     fwrite(&height, sizeof(int), 1, fp);
     fwrite(&bit_depth, sizeof(int), 1, fp);
-    fwrite(&chroma_format, sizeof(int), 1, fp);
+    fwrite(&chroma_format_idc, sizeof(int), 1, fp);
     fwrite(&version, sizeof(int), 1, fp);
 
     int bd = OAPV_CS_GET_BYTE_DEPTH(frame_buffer->cs);
@@ -843,7 +959,8 @@ void validate_full(oapv_imgb_t* frame_buffer, int num_tiles) {
     // U/V validation  
     u16* u_data = (u16*)frame_buffer->a[1];
     u16* v_data = (u16*)frame_buffer->a[2];
-    int chroma_width = width / 2;
+    int chroma_width_factor = get_chroma_width_factor(OAPV_CS_GET_FORMAT(frame_buffer->cs), 1);
+    int chroma_width = width / chroma_width_factor;
     int chroma_pixels = chroma_width * height;
     
     int u_nonzero = 0, v_nonzero = 0;
@@ -873,8 +990,8 @@ void validate_full(oapv_imgb_t* frame_buffer, int num_tiles) {
     // For selective decoding, only check chroma quality in the decoded region
     if(min_x <= max_x && min_y <= max_y) {
         // Convert to chroma coordinates
-        int chroma_min_x = min_x / 2;
-        int chroma_max_x = max_x / 2;
+        int chroma_min_x = min_x / chroma_width_factor;
+        int chroma_max_x = max_x / chroma_width_factor;
         
         // Check for chroma stripe artifacts only in decoded region
         int u_zero_cols = 0, v_zero_cols = 0;
@@ -979,7 +1096,8 @@ static int decode_mip(const char* input_file, int mip_level, oapvd_t decoder_id)
            sel_decode->actual_tile_width, sel_decode->actual_tile_height);
 
     // Create output buffers if needed
-    oapv_imgb_t *frame_buffer = create_frame_buffer(sel_decode->actual_frame_width, sel_decode->actual_frame_height, 3, sel_decode->bit_depth);
+    int          color_format = chroma_format_idc_to_color_format(sel_decode->chroma_format_idc);
+    oapv_imgb_t *frame_buffer = create_frame_buffer(sel_decode->actual_frame_width, sel_decode->actual_frame_height, color_format, sel_decode->bit_depth);
 
     if(!frame_buffer) {
         printf("ERROR: Failed to allocate frame buffers\n");
@@ -1166,9 +1284,10 @@ int run_multi_mip_test_config(const char* input_file, const test_config_t* confi
         for (int m = 0; m < config->num_mips; m++) {
             oapv_mip_request_t *mip_req = &mip_requests[m];
             if (mip_req->status == OAPV_OK) {
+                int color_format = chroma_format_idc_to_color_format(mip_req->chroma_format_idc);
                 mip_req->output_buffer = create_frame_buffer(
                     mip_req->frame_width_mb_aligned, mip_req->frame_height_mb_aligned,
-                    3, mip_req->bit_depth);
+                    color_format, mip_req->bit_depth);
 
                 if (!mip_req->output_buffer) {
                     printf("ERROR: Failed to allocate frame buffer for mip %d\n", mip_req->mip_level);
@@ -1406,7 +1525,8 @@ int run_test_config(const char* input_file, const test_config_t* config) {
     // Create output buffers if needed
     oapv_imgb_t *frame_buffer = NULL;
     if (config->output_format != OUTPUT_NONE || config->validation_level == VALIDATE_FULL) {
-        frame_buffer = create_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, 3, sel_decode.bit_depth);
+        int color_format = chroma_format_idc_to_color_format(sel_decode.chroma_format_idc);
+        frame_buffer = create_frame_buffer(sel_decode.actual_frame_width, sel_decode.actual_frame_height, color_format, sel_decode.bit_depth);
         
         if (!frame_buffer) {
             printf("ERROR: Failed to allocate frame buffers\n");

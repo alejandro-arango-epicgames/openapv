@@ -701,7 +701,7 @@ struct oapv_selective_decode {
     int actual_tile_width;                  // Actual tile width in pixels (converted from MBs)
     int actual_tile_height;                 // Actual tile height in pixels (converted from MBs)
     int bit_depth;                          // Bit depth from frame metadata
-    int chroma_format;                      // Chroma format from frame metadata
+    int chroma_format_idc;                  // Chroma format from frame metadata
 };
 
 /*****************************************************************************
@@ -723,7 +723,7 @@ struct oapv_mip_request {
     int tile_width_mb_aligned;              // Tile width in pixels aligned to macroblock boundaries (converted from MBs)
     int tile_height_mb_aligned;             // Tile height in pixels aligned to macroblock boundaries (converted from MBs)
     int bit_depth;                          // Bit depth from frame metadata
-    int chroma_format;                      // Chroma format from frame metadata
+    int chroma_format_idc;                  // Chroma format from frame metadata
 };
 
 typedef struct oapv_multi_mip_decode oapv_multi_mip_decode_t;

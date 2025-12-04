@@ -2602,7 +2602,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
                 sel_decode->actual_tile_width = ctx->fh.tile_width_in_mbs * 16;
                 sel_decode->actual_tile_height = ctx->fh.tile_height_in_mbs * 16;
                 sel_decode->bit_depth = ctx->fh.fi.bit_depth;
-                sel_decode->chroma_format = ctx->fh.fi.chroma_format_idc;
+                sel_decode->chroma_format_idc = ctx->fh.fi.chroma_format_idc;
 
                 // Check if this is a metadata-only call (no output buffers provided)
                 if(sel_decode->output_buffer == NULL) {
@@ -3312,7 +3312,7 @@ int oapvd_decode_selective_multi(oapvd_t did, oapvd_istream_t *istream, oapv_sel
     sel_decode->actual_tile_width = mip_request.tile_width_mb_aligned;
     sel_decode->actual_tile_height = mip_request.tile_height_mb_aligned;
     sel_decode->bit_depth = mip_request.bit_depth;
-    sel_decode->chroma_format = mip_request.chroma_format;
+    sel_decode->chroma_format_idc = mip_request.chroma_format_idc;
 
     return ret;
 }
@@ -3676,7 +3676,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
         mip_info->mip_req->tile_width_mb_aligned = ctx->fh.tile_width_in_mbs * OAPV_MB_W;
         mip_info->mip_req->tile_height_mb_aligned = ctx->fh.tile_height_in_mbs * OAPV_MB_H;
         mip_info->mip_req->bit_depth = ctx->fh.fi.bit_depth;
-        mip_info->mip_req->chroma_format = ctx->fh.fi.chroma_format_idc;
+        mip_info->mip_req->chroma_format_idc = ctx->fh.fi.chroma_format_idc;
         mip_info->mip_req->status = OAPV_OK;
 
     }
