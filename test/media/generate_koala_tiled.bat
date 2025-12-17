@@ -15,10 +15,13 @@ ffmpeg -y -i "%INPUT%" -pix_fmt yuv422p10le -s 3840x2160 -f rawvideo -frames:v %
 
 REM Generate .apv1 frames
 
+set OAPV_ENC_EXE=..\..\build\bin\release\oapv_app_enc
+set OAPV_ENC_ARGS=--color-transfer bt709 --color-primaries bt709
+
 REM Create output directory
 if not exist "%NAME%_tiled" mkdir "%NAME%_tiled"
 
-..\..\build\bin\release\oapv_app_enc -i "%YUV%" -w 3840 -h 2160 -d 10 -z 30 --input-csp 2 --tile-w 256 --tile-h 256 --tmv-mips -o %NAME%_tiled/%NAME%_tiled
+%OAPV_ENC_EXE% -i "%YUV%" -w 3840 -h 2160 -d 10 -z 30 --input-csp 2 --tile-w 256 --tile-h 256 --tmv-mips %OAPV_ENC_ARGS% -o %NAME%_tiled/%NAME%_tiled
 
 REM Generate 16K version from frame at 9.22 seconds
 
@@ -53,7 +56,7 @@ if not exist "%NAME%_16k_tiled" mkdir "%NAME%_16k_tiled"
 
 REM Encode 16K APV1
 echo Step 3: Encoding 16K APV1...
-..\..\build\bin\release\oapv_app_enc -i "%YUV_16K_UPSCALED%" -w 15360 -h 8640 -d 10 -z 30 --input-csp 2 --tile-w 256 --tile-h 256 --tmv-mips -o %NAME%_16k_tiled/%NAME%_16k_tiled
+%OAPV_ENC_EXE% -i "%YUV_16K_UPSCALED%" -w 15360 -h 8640 -d 10 -z 30 --input-csp 2 --tile-w 256 --tile-h 256 --tmv-mips %OAPV_ENC_ARGS% -o %NAME%_16k_tiled/%NAME%_16k_tiled
 
 if errorlevel 1 (
     echo ERROR: Failed to encode 16K APV1

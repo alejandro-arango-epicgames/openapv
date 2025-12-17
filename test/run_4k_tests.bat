@@ -3,7 +3,8 @@ REM OpenAPV 4K Test Runner
 REM Runs 4K UHD decoder tests (koala frame) and generates PNG visualizations
 
 REM Set paths as variables
-set DECODER_EXE=..\build\Release\decoder_test.exe
+set BUILD_DIR=..\build
+set DECODER_EXE=%BUILD_DIR%\Release\decoder_test.exe
 set MEDIA_4K=media\koala_tiled\koala_tiled_0000.apv1
 
 echo ========================================
@@ -30,7 +31,7 @@ echo.
 
 REM Build the tests
 echo Building decoder tests...
-cmake --build ..\build --config Release --target decoder_test
+cmake --build %BUILD_DIR% --config Release --target decoder_test
 if errorlevel 1 (
     echo ERROR: Build failed!
     exit /b 1

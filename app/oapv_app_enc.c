@@ -198,6 +198,26 @@ static const args_opt_t enc_args_opts[] = {
         "custom quantization matrix for component 3 \"q1 q2 ... q63 q64\""
     },
     {
+        ARGS_NO_KEY,  "color-primaries", ARGS_VAL_TYPE_STRING, 0, NULL,
+        "Specify the color primaries as defined in section 8.1, table 2 of https://www.itu.int/rec/T-REC-H.273\n"
+        "      - bt709 (1), unspecified (2), bt470m (4), bt470bg (5), smpte170m (6), smpte240m (7),\n"
+        "        film (8), smpte428 (10), smpte431 (11), smpte432 (12)"
+    },
+    {
+        ARGS_NO_KEY,  "color-transfer", ARGS_VAL_TYPE_STRING, 0, NULL,
+        "Specify the color transfer as defined in section 8.2, table 3 of https://www.itu.int/rec/T-REC-H.273\n"
+        "     - bt709 (1), unspecified (2), bt470m (4), bt470bg (5), smpte170m (6), smpte240m (7),\n"
+        "       linear (8), log100 (9), log316 (10), iec61966-2-4 (11), bt1361e (12), iec61966-2-1 (13),\n"
+        "       bt2020-10 (14), bt2020-12 (15), smpte2084 (16), smpte428 (17), arib-std-b67 (18)"
+    },
+    {
+        ARGS_NO_KEY,  "color-matrix", ARGS_VAL_TYPE_STRING, 0, NULL,
+        "Specify the color matrix as defined in section 8.3, table 4 of https://www.itu.int/rec/T-REC-H.273\n"
+        "     - gbr (0), bt709 (1), unspecified (2), fcc (4), bt470bg (5), smpte170m (6), smpte240m (7),\n"
+        "       ycgco (8), bt2020nc (9), bt2020c (10), smpte2085 (11), chroma-derived-nc (12),\n"
+        "       chroma-derived-c (13), ictcp (14)"
+    },
+    {
         ARGS_NO_KEY,  "hash", ARGS_VAL_TYPE_NONE, 0, NULL,
         "embed frame hash value for conformance checking in decoding"
     },
@@ -307,6 +327,10 @@ static args_var_t *args_init_vars(args_parser_t *args, oapve_param_t *param)
     args_set_variable_by_key_long(opts, "q-matrix-c1", vars->q_matrix_c1);
     args_set_variable_by_key_long(opts, "q-matrix-c2", vars->q_matrix_c2);
     args_set_variable_by_key_long(opts, "q-matrix-c3", vars->q_matrix_c3);
+
+    args_set_variable_by_key_long(opts, "color-primaries", vars->color_primaries);
+    args_set_variable_by_key_long(opts, "color-transfer", vars->color_transfer);
+    args_set_variable_by_key_long(opts, "color-matrix", vars->color_matrix);
 
     args_set_variable_by_key_long(opts, "threads", vars->threads);
     strcpy(vars->threads, "auto");
