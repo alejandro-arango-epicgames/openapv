@@ -2672,7 +2672,7 @@ int oapvd_decode_selective(oapvd_t did, oapvd_istream_t * istream, oapv_selectiv
 
     // Calculate frame data start position within the target mip level frame
     // After parsing frame header, bs.cur points to start of frame data (tiles)
-    int64_t frame_data_offset_in_au = bs.cur - (u8*)bitb.addr; // Offset from AU start
+    int64_t frame_data_offset_in_au = BSR_GET_CUR(&bs) - (u8*)bitb.addr; // Offset from AU start
     int64_t abs_frame_data_offset = au_start_pos + frame_data_offset_in_au;
 
     // Build tile offset cache for this frame if needed
@@ -3199,7 +3199,7 @@ static int oapvd_parse_frame_headers(oapvd_istream_t *istream, oapv_mip_location
         int ret = oapvd_vlc_pbu_header(&pbu_bs, &pbuh_check);
         if(OAPV_FAILED(ret)) {
             // Check if we need more data
-            long bytes_consumed = pbu_bs.cur - pbu_bs.beg;
+            long bytes_consumed = BSR_GET_CUR(&pbu_bs) - pbu_bs.beg;
             if(bytes_consumed >= (long)(header_buffer_size * 0.9) &&
                header_buffer_size < location->pbu_size) {
                 // Expand buffer
@@ -3230,7 +3230,7 @@ static int oapvd_parse_frame_headers(oapvd_istream_t *istream, oapv_mip_location
         ret = oapvd_vlc_frame_header(&pbu_bs, frame_header);
         if(OAPV_FAILED(ret)) {
             // Check if we need more data
-            long bytes_consumed = pbu_bs.cur - pbu_bs.beg;
+            long bytes_consumed = BSR_GET_CUR(&pbu_bs) - pbu_bs.beg;
             if(bytes_consumed >= (long)(header_buffer_size * 0.9) &&
                header_buffer_size < location->pbu_size) {
                 // Expand buffer
@@ -3266,7 +3266,7 @@ static int oapvd_parse_frame_headers(oapvd_istream_t *istream, oapv_mip_location
     }
 
     // Calculate frame data offset for later use
-    long header_consumed = pbu_bs.cur - pbu_bs.beg;
+    long header_consumed = BSR_GET_CUR(&pbu_bs) - pbu_bs.beg;
     location->frame_data_offset = location->frame_file_pos + 4 + header_consumed;
 
     oapv_mfree(frame_buffer);
