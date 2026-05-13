@@ -779,12 +779,14 @@ static void enc_flush(oapve_ctx_t *ctx)
         ctx->core[i] = NULL;
     }
 
-    if(ctx->tile != NULL && ctx->tile[0].bs_buf != NULL) {
-        oapv_mfree_fast(ctx->tile[0].bs_buf);
-    }
-
-    // Free dynamically allocated tile array
+    // Free per-tile bitstream buffers (each tile owns its own buffer)
     if(ctx->tile != NULL) {
+        for(int i = 0; i < OAPV_MAX_TILES; i++) {
+            if(ctx->tile[i].bs_buf != NULL) {
+                oapv_mfree_fast(ctx->tile[i].bs_buf);
+                ctx->tile[i].bs_buf = NULL;
+            }
+        }
         oapv_mfree_fast(ctx->tile);
         ctx->tile = NULL;
     }
@@ -843,12 +845,13 @@ static int enc_ready(oapve_ctx_t *ctx)
         }
     }
 
-    // Initialize all allocated tiles
+    // Initialize all allocated tiles. Per-tile bitstream buffers are
+    // allocated lazily in enc_frm_prepare() once tile dimensions are known.
     for(int i = 0; i < OAPV_MAX_TILES; i++) {
         ctx->tile[i].stat = ENC_TILE_STAT_NOT_ENCODED;
+        ctx->tile[i].bs_buf = NULL;
+        ctx->tile[i].bs_buf_max = 0;
     }
-    ctx->tile[0].bs_buf = (u8 *)oapv_malloc(ctx->cdesc.max_bs_buf_size);
-    oapv_assert_gv(ctx->tile[0].bs_buf, ret, OAPV_ERR_UNKNOWN, ERR);
 
     ctx->rc_param.alpha = OAPV_RC_ALPHA;
     ctx->rc_param.beta = OAPV_RC_BETA;
@@ -996,6 +999,10 @@ static int enc_tile(oapve_ctx_t *ctx, oapve_core_t *core, oapve_tile_t *tile)
         tile->th.tile_data_size[c] = enc_tile_comp(&bs, tile, ctx, core, c, s_org, org, s_rec, rec);
     }
 
+    if(bs.ndata[0] != 0) {
+        /* one of the inner-loop coefficient writes detected a buffer overrun */
+        return OAPV_ERR_OUT_OF_BS_BUF;
+    }
     u32 bs_size = (int)(bs.cur - bs.beg);
     if(bs_size > tile->bs_buf_max) {
         return OAPV_ERR_OUT_OF_BS_BUF;
@@ -1160,12 +1167,31 @@ static int enc_frm_prepare(oapve_ctx_t *ctx, oapve_param_t *param, oapv_imgb_t *
     ret = enc_set_tile_info(ctx->tile, ctx->w, ctx->h, param->tile_w, param->tile_h, &ctx->num_tile_cols, &ctx->num_tile_rows, &ctx->num_tiles);
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
-    // set bitstream buffer for each tile
-    int buf_size = ctx->cdesc.max_bs_buf_size / ctx->num_tiles;
-    ctx->tile[0].bs_buf_max = buf_size;
-    for(i = 1; i < ctx->num_tiles; i++) {
-        ctx->tile[i].bs_buf = ctx->tile[i - 1].bs_buf + buf_size;
-        ctx->tile[i].bs_buf_max = buf_size;
+    // Allocate a per-tile bitstream buffer sized for the tile geometry.
+    // Worst case: ~4 bytes per coefficient (16-bit value + run/sign overhead),
+    // plus a fixed allowance for the tile header.
+    {
+        u64 worst = (u64)param->tile_w * (u64)param->tile_h * (u64)ctx->num_comp * 4ULL + 4096ULL;
+        // also honor the user's max_bs_buf_size hint as a lower bound
+        u64 hinted = (ctx->num_tiles > 0) ? ((u64)ctx->cdesc.max_bs_buf_size / (u64)ctx->num_tiles) : 0;
+        if(hinted > worst) worst = hinted;
+        /* Clamp to INT_MAX-16: oapv_bsw_init takes `int size`, so anything
+         * above INT_MAX would wrap negative and produce bs->end < bs->beg. */
+        if(worst > 0x7FFFFFF0ULL) worst = 0x7FFFFFF0ULL;
+        u32 per_tile = (u32)worst;
+
+        for(i = 0; i < ctx->num_tiles; i++) {
+            if(ctx->tile[i].bs_buf == NULL || ctx->tile[i].bs_buf_max < per_tile) {
+                if(ctx->tile[i].bs_buf != NULL) {
+                    oapv_mfree_fast(ctx->tile[i].bs_buf);
+                    ctx->tile[i].bs_buf = NULL;
+                    ctx->tile[i].bs_buf_max = 0;
+                }
+                ctx->tile[i].bs_buf = (u8 *)oapv_malloc(per_tile);
+                oapv_assert_rv(ctx->tile[i].bs_buf != NULL, OAPV_ERR_OUT_OF_MEMORY);
+                ctx->tile[i].bs_buf_max = per_tile;
+            }
+        }
     }
     // set cores
     for(i = 0; i < ctx->threads; i++) {
@@ -1261,6 +1287,10 @@ static int enc_frame(oapve_ctx_t *ctx, oapv_bs_t *bs)
     /****************************************************/
 
     for(int i = 0; i < ctx->num_tiles; i++) {
+        if(bs->cur + ctx->tile[i].bs_size > bs->end) {
+            ret = OAPV_ERR_OUT_OF_BS_BUF;
+            goto ERR;
+        }
         oapv_mcpy(bs->cur, ctx->tile[i].bs_buf, ctx->tile[i].bs_size);
         bs->cur = bs->cur + ctx->tile[i].bs_size;
         ctx->fh.tile_size[i] = ctx->tile[i].bs_size - OAPV_TILE_SIZE_LEN;
@@ -1271,6 +1301,10 @@ static int enc_frame(oapve_ctx_t *ctx, oapv_bs_t *bs)
         oapve_vlc_frame_header(&bs_fh, ctx, &ctx->fh);
         /* de-init BSW */
         oapv_bsw_sink(&bs_fh);
+    }
+    if(bs->ndata[0] != 0) {
+        /* AU bitstream overflowed during frame-header write or tile merge */
+        return OAPV_ERR_OUT_OF_BS_BUF;
     }
     if(ctx->param->rc_type != 0) {
         oapve_rc_update_after_pic(ctx, cost_sum);
@@ -1476,6 +1510,10 @@ int oapve_encode(oapve_t eid, oapv_frms_t *ifrms, oapvm_t mid, oapv_bitb_t *bitb
     oapv_bsw_deinit(bs); /* de-init BSW */
     stat->write = bsw_get_write_byte(bs);
 
+    if(bs->ndata[0] != 0) {
+        /* a write hit the end of the caller-supplied bitb buffer */
+        return OAPV_ERR_OUT_OF_BS_BUF;
+    }
     return OAPV_OK;
 }
 
