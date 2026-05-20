@@ -65,6 +65,7 @@ extern "C" {
 /*
 * TMV Version history (remove before merge)
 * - Added fixes for encoder memory stomps during encoding of 16K videos.
+* - Added rate controller fix for multiple frames of different sizes.
 */
 
 /* 4-bytes version number */
