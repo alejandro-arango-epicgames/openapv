@@ -3443,16 +3443,39 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
         for(int c = 0; c < num_comp; c++) {
             if(!mip_ctx->output_buffer) continue;
 
-            int comp_stride_bytes = mip_ctx->output_buffer->s[c];
-            u8 *comp_base_bytes = (u8*)mip_ctx->output_buffer->a[c];
+            int comp_stride_bytes;
+            u16 *tile_dst;
 
-            int comp_tile_x_pixels = (c > 0 && mip_ctx->chroma_format_idc == 2) ?
-                                    tile_x_start / 2 : tile_x_start;
-            int comp_tile_y_pixels = tile_y_start;
+            if(mip_ctx->output_buffer->tiled_layout) {
+                /* Tiled output: tile-major layout with planes interleaved within
+                 * each tile. Each tile occupies `tile_size` bytes; plane c's data
+                 * lives at the same intra-tile offset for every tile, and `a[c]`
+                 * is pre-biased to point at that offset in tile 0. So tile (col,row)
+                 * for component c starts at:
+                 *     a[c] + (row * num_tile_cols + col) * tile_size
+                 *
+                 * With tile_for_comp.x/y reset to 0 below, dec_tile_comp's inner
+                 * loop writes blocks at tile-local coords [0..tile_h_c) x
+                 * [0..tile_w_c), so we just pass the per-tile row stride. */
+                const int    tile_stride_c = mip_ctx->output_buffer->tile_stride[c];
+                const int    ntc           = mip_ctx->output_buffer->num_tile_cols;
+                const size_t tile_bytes    = (size_t)mip_ctx->output_buffer->tile_size;
+                const size_t tile_offset   = ((size_t)work->row * (size_t)ntc + (size_t)work->col) * tile_bytes;
+                tile_dst          = (u16*)((u8*)mip_ctx->output_buffer->a[c] + tile_offset);
+                comp_stride_bytes = tile_stride_c;
+            }
+            else {
+                comp_stride_bytes = mip_ctx->output_buffer->s[c];
+                u8 *comp_base_bytes = (u8*)mip_ctx->output_buffer->a[c];
 
-            u8 *tile_dst_bytes = comp_base_bytes + (comp_tile_y_pixels * comp_stride_bytes) +
-                                (comp_tile_x_pixels * 2);
-            u16 *tile_dst = (u16*)tile_dst_bytes;
+                int comp_tile_x_pixels = (c > 0 && mip_ctx->chroma_format_idc == 2) ?
+                                        tile_x_start / 2 : tile_x_start;
+                int comp_tile_y_pixels = tile_y_start;
+
+                u8 *tile_dst_bytes = comp_base_bytes + (comp_tile_y_pixels * comp_stride_bytes) +
+                                    (comp_tile_x_pixels * 2);
+                tile_dst = (u16*)tile_dst_bytes;
+            }
 
             oapv_bs_t comp_bs;
 

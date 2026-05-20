@@ -400,6 +400,29 @@ struct oapv_imgb {
     int (*addref)(oapv_imgb_t *imgb);
     int (*getref)(oapv_imgb_t *imgb);
     int (*release)(oapv_imgb_t *imgb);
+
+    /* Optional tiled-layout output. When tiled_layout == 0 (default), `a[c]`
+     * points at a scanline-strided plane and `s[c]` is the picture stride
+     * in bytes — the historical behavior. When tiled_layout != 0, the
+     * output buffer is laid out tile-major with planes interleaved within
+     * each tile (i.e. tile k occupies one contiguous `tile_size`-byte
+     * block, and all of plane c's `tile_h[c]*tile_stride[c]` bytes live
+     * within that block at the same intra-tile offset for every tile).
+     *
+     * In tiled mode `a[c]` is the buffer base plus the intra-tile byte
+     * offset of plane c, so tile (tx, ty) for component c starts at:
+     *     a[c] + (ty * num_tile_cols + tx) * tile_size
+     * and the decoder writes pixels at tile-local coordinates using
+     * `tile_stride[c]` as the per-row byte advance.
+     *
+     * Zero-initialised structs continue to use the scanline path. */
+    int           tiled_layout;
+    int           num_tile_cols;            /* number of tile columns in the picture */
+    int           num_tile_rows;            /* number of tile rows in the picture */
+    int           tile_size;                /* total bytes per tile (sum of plane sub-tiles, incl. padding) */
+    int           tile_w[OAPV_MAX_CC];      /* tile width  per component, in samples */
+    int           tile_h[OAPV_MAX_CC];      /* tile height per component, in samples */
+    int           tile_stride[OAPV_MAX_CC]; /* tile row stride in bytes (= tile_w[c] * bytes_per_sample) */
 };
 
 typedef struct oapv_frm oapv_frm_t;
