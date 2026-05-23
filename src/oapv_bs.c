@@ -43,6 +43,18 @@ static int bsw_flush(oapv_bs_t *bs, int bytes)
     if(bytes == 0)
         bytes = BSW_GET_SINK_BYTE(bs);
 
+    /* Root bounds check: bsw_flush is the single point that advances
+     * bs->cur. Callers' pre-checks have under-counted in the past (e.g.
+     * checking for 1 byte when up to 4 are flushed), so guard here too.
+     * On overflow, set the sticky error flag and drop the pending bytes
+     * instead of writing past bs->end. */
+    if(bs->cur + bytes > bs->end) {
+        bs->ndata[0] = -1;
+        bs->code = 0;
+        bs->leftbits = 32;
+        return -1;
+    }
+
     while(bytes--) {
         *bs->cur++ = (bs->code >> 24) & 0xFF;
         bs->code <<= 8;
@@ -62,6 +74,8 @@ void oapv_bsw_init(oapv_bs_t *bs, u8 *buf, int size, oapv_bs_fn_flush_t fn_flush
     bs->code = 0;
     bs->leftbits = 32;
     bs->fn_flush = (fn_flush == NULL ? bsw_flush : fn_flush);
+    /* ndata[0] is used as an overflow flag: 0 = ok, -1 = buffer exhausted */
+    bs->ndata[0] = 0;
 }
 
 void oapv_bsw_deinit(oapv_bs_t *bs)
@@ -71,7 +85,14 @@ void oapv_bsw_deinit(oapv_bs_t *bs)
 
 void *oapv_bsw_sink(oapv_bs_t *bs)
 {
-    oapv_assert_rv(bs->cur + BSW_GET_SINK_BYTE(bs) < bs->end, NULL);
+    /* If the outstanding bytes plus current cursor would exceed the buffer,
+     * record the overflow on bs (ndata[0]) and return the current cursor
+     * unchanged. Returning NULL here was unsafe: callers do pointer
+     * arithmetic on the result and would compute garbage sizes. */
+    if(bs->cur + BSW_GET_SINK_BYTE(bs) > bs->end) {
+        bs->ndata[0] = -1;
+        return (void *)bs->cur;
+    }
     bs->fn_flush(bs, 0);
     bs->code = 0;
     bs->leftbits = 32;
@@ -101,7 +122,12 @@ int oapv_bsw_write1(oapv_bs_t *bs, int val)
     bs->code |= ((val & 0x1) << bs->leftbits);
 
     if(bs->leftbits == 0) {
-        oapv_assert_rv(bs->cur < bs->end, -1);
+        if(bs->cur >= bs->end) {
+            bs->ndata[0] = -1;
+            bs->code = 0;
+            bs->leftbits = 32;
+            return -1;
+        }
         bs->fn_flush(bs, 0);
 
         bs->code = 0;
@@ -125,7 +151,12 @@ int oapv_bsw_write(oapv_bs_t *bs, u32 val, int len) /* len(1 ~ 32) */
         bs->leftbits -= len;
     }
     else {
-        oapv_assert_rv(bs->cur + 4 < bs->end, -1);
+        if(bs->cur + 4 > bs->end) {
+            bs->ndata[0] = -1;
+            bs->code = 0;
+            bs->leftbits = 32;
+            return -1;
+        }
 
         bs->leftbits = 0;
         bs->fn_flush(bs, 0);

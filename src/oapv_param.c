@@ -387,7 +387,7 @@ static int enc_update_param_level(oapve_param_t* param)
     int w = oapv_div_round_up(param->w, OAPV_MB_W) * OAPV_MB_W;
     int h = oapv_div_round_up(param->h, OAPV_MB_H) * OAPV_MB_H;
     double fps = (double)param->fps_num / param->fps_den;
-    u64 luma_sample_rate = (int)((double)w * h * fps);
+    u64 luma_sample_rate = (u64)((double)w * h * fps);
     int min_level_idx = 0;
     for (int i = 0 ; i < MAX_LEVEL_NUM ; i++) {
         if (luma_sample_rate <= max_luma_sample_rate[i]) {

@@ -35,6 +35,21 @@
 #include "oapv_app_y4m.h"
 
 #define MAX_BS_BUF   (128 * 1024 * 1024)
+/* Worst-case AU bitstream size as a function of frame dimensions and the
+ * number of color components. Allows roughly 4 bytes per coefficient plus a
+ * fixed allowance for AU/PBU headers and metadata. Result is clamped to
+ * INT_MAX-1 because oapv_bitb_t.bsize is `int`. */
+#define BS_BUF_FLOOR        MAX_BS_BUF
+#define BS_BUF_HEADER_ALLOW (16 * 1024 * 1024)
+static int compute_bs_buf_size(int w, int h, int num_comp)
+{
+    unsigned long long need =
+        (unsigned long long)w * (unsigned long long)h *
+        (unsigned long long)num_comp * 4ULL + (unsigned long long)BS_BUF_HEADER_ALLOW;
+    if(need < (unsigned long long)BS_BUF_FLOOR) need = BS_BUF_FLOOR;
+    if(need > (unsigned long long)0x7FFFFFF0ULL) need = 0x7FFFFFF0ULL;
+    return (int)need;
+}
 #define MAX_NUM_FRMS (OAPV_MAX_NUM_FRAMES) // TMV: supports for mips as non-primary frames in access unit
 #define NUM_PRI_FRMS (1) // Supports only 1 primary frame in access unit
 #define FRM_IDX      (0)           // supports only 1-frame in an access unit
@@ -842,7 +857,19 @@ int main(int argc, const char **argv)
         goto ERR;
     }
 
-    cdesc.max_bs_buf_size = MAX_BS_BUF; /* maximum bitstream buffer size */
+    /* Size the bitstream buffer to the worst-case AU for the chosen
+     * dimensions and color format, so high-resolution inputs (e.g. 16k)
+     * don't trigger OAPV_ERR_OUT_OF_BS_BUF. */
+    {
+        int num_comp;
+        switch(cfmt) {
+        case OAPV_CF_YCBCR400:  num_comp = 1; break;
+        case OAPV_CF_YCBCR4444: num_comp = 4; break;
+        case OAPV_CF_PLANAR2:   num_comp = 3; break;
+        default:                num_comp = 3; break;
+        }
+        cdesc.max_bs_buf_size = compute_bs_buf_size(param->w, param->h, num_comp);
+    }
     cdesc.max_num_frms = NUM_PRI_FRMS;
     if(!strcmp(args_var->threads, "auto")){
         cdesc.threads = OAPV_CDESC_THREADS_AUTO;
@@ -878,10 +905,10 @@ int main(int argc, const char **argv)
         is_rec = 1;
     }
 
-    /* allocate bitstream buffer */
-    bs_buf = (unsigned char *)malloc(MAX_BS_BUF);
+    /* allocate bitstream buffer (sized in cdesc.max_bs_buf_size above) */
+    bs_buf = (unsigned char *)malloc((size_t)cdesc.max_bs_buf_size);
     if(bs_buf == NULL) {
-        logerr("ERR: cannot allocate bitstream buffer, size=%d", MAX_BS_BUF);
+        logerr("ERR: cannot allocate bitstream buffer, size=%d", cdesc.max_bs_buf_size);
         ret = -1;
         goto ERR;
     }
@@ -953,7 +980,7 @@ int main(int argc, const char **argv)
 
     bitrate_tot = 0;
     bitb.addr = bs_buf;
-    bitb.bsize = MAX_BS_BUF;
+    bitb.bsize = cdesc.max_bs_buf_size;
 
     if(args_var->seek > 0) {
         state = STATE_SKIPPING;

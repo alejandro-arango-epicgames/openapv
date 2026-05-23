@@ -62,6 +62,12 @@ extern "C" {
 #define OAPV_VER_MINOR                  (0)
 #define OAPV_VER_PATCH                  (1)
 
+/*
+* TMV Version history (remove before merge)
+* - Added fixes for encoder memory stomps during encoding of 16K videos.
+* - Added rate controller fix for multiple frames of different sizes.
+*/
+
 /* 4-bytes version number */
 #define OAPV_VER_NUM \
     OAPV_VER_SET(OAPV_VER_APISET,OAPV_VER_MAJOR,OAPV_VER_MINOR,OAPV_VER_PATCH)

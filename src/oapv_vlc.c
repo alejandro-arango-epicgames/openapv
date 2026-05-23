@@ -36,13 +36,24 @@
 // start of encoder code
 #if ENABLE_ENCODER
 ///////////////////////////////////////////////////////////////////////////////
-#define BSW_FLUSH_4BYTE(bs) {                     \
-        *(bs)->cur++ = ((bs)->code >> 24) & 0xFF; \
-        *(bs)->cur++ = ((bs)->code >> 16) & 0xFF; \
-        *(bs)->cur++ = ((bs)->code >> 8) & 0xFF;  \
-        *(bs)->cur++ = ((bs)->code) & 0xFF;       \
-        (bs)->code = 0;                           \
-        (bs)->leftbits = 32;                      \
+/* Flush 4 bytes of `code` into the bitstream buffer.
+ * If the 4 bytes would overrun bs->end, set the bs->ndata[0] error flag,
+ * stop advancing the cursor, and zero out the code state. The tile-encode
+ * caller must check ndata[0] after the inner coefficient loop and report
+ * OAPV_ERR_OUT_OF_BS_BUF rather than continue with corrupted state. */
+#define BSW_FLUSH_4BYTE(bs) {                         \
+        if((bs)->cur + 4 > (bs)->end) {               \
+            (bs)->ndata[0] = -1;                      \
+            (bs)->code = 0;                           \
+            (bs)->leftbits = 32;                      \
+        } else {                                      \
+            *(bs)->cur++ = ((bs)->code >> 24) & 0xFF; \
+            *(bs)->cur++ = ((bs)->code >> 16) & 0xFF; \
+            *(bs)->cur++ = ((bs)->code >> 8) & 0xFF;  \
+            *(bs)->cur++ = ((bs)->code) & 0xFF;       \
+            (bs)->code = 0;                           \
+            (bs)->leftbits = 32;                      \
+        }                                             \
     }
 
 #define BSW_WRITE_32BITS(bs, code32, nbits) { \

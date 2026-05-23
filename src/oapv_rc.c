@@ -187,9 +187,12 @@ void oapve_rc_update_after_pic(oapve_ctx_t* ctx, double cost)
         num_pixel += (ctx->w * ctx->h) >> (ctx->comp_sft[c][0] + ctx->comp_sft[c][1]);
     }
 
-    int total_bits = 0;
+    /* total_bits must be u64: a 16k 10-bit 4:2:2 frame at high quality can
+     * exceed INT_MAX bits (~33 MB encoded), which previously wrapped negative
+     * and turned the subsequent log() into NaN, corrupting alpha/beta. */
+    u64 total_bits = 0;
     for (int i = 0; i < ctx->num_tiles; i++) {
-        total_bits += ctx->fh.tile_size[i] * 8;
+        total_bits += (u64)ctx->fh.tile_size[i] * 8;
     }
 
     double ln_bpp = log(pow(cost / (double)num_pixel, OAPV_RC_BETA));

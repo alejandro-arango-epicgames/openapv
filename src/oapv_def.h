@@ -312,7 +312,12 @@ struct oapve_ctx {
     oapv_fn_had8x8_t          fn_had8x8;
 
     int                       use_frm_hash;
+    /* working slot used by the RC code; loaded from rc_param_frm[i] at the
+     * start of each frame and saved back after oapve_rc_update_after_pic so
+     * that alpha/beta drift from a small mip doesn't pollute the next AU's
+     * large mip. Keyed by frame index in the AU (0 = primary, 1..N = mips). */
     oapve_rc_param_t          rc_param;
+    oapve_rc_param_t          rc_param_frm[OAPV_MAX_NUM_FRAMES];
 
     int                       threads; // num of thread for encoding
     int                       au_bs_fmt; // access unit bitstream format
