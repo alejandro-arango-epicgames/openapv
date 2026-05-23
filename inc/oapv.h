@@ -747,6 +747,24 @@ struct oapv_mip_request {
     int tile_height_mb_aligned;             // Tile height in pixels aligned to macroblock boundaries (converted from MBs)
     int bit_depth;                          // Bit depth from frame metadata
     int chroma_format_idc;                  // Chroma format from frame metadata
+
+    /* Optional per-tile destination slot mapping for virtualized output.
+     *
+     * When NULL (default after Memzero), the decoder routes each tile to its
+     * natural offset within output_buffer using (row * num_tile_cols + col).
+     * This is the legacy behavior and is fully ABI-compatible with callers
+     * that don't know about this field.
+     *
+     * When non-NULL, must point to a caller-owned array of at least num_tiles
+     * ints, where tile_dst_slots[i] is the destination slot index for the
+     * tile at tile_coords[i*2..i*2+1]. The decoder writes that tile at
+     * (tile_dst_slots[i] * tile_size) within output_buffer. Used by callers
+     * implementing a bounded resident-tile cache where output_buffer is sized
+     * to a tile-budget (much smaller than the worst-case full-tile-count).
+     *
+     * Only honoured when output_buffer->tiled_layout != 0. Caller is
+     * responsible for keeping the array alive across the decode call. */
+    const int *tile_dst_slots;
 };
 
 typedef struct oapv_multi_mip_decode oapv_multi_mip_decode_t;

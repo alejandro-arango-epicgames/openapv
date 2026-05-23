@@ -2875,6 +2875,12 @@ typedef struct {
     volatile int status;    // 0=NOT_DECODED, 1=ON_DECODING, 2=DECODED
     oapvd_core_t *core;     // Assigned decoder core
 
+    /* Per-tile destination slot override. >= 0 means "write tile to
+     * dst_slot * tile_size" in tiled output (caller-virtualized routing).
+     * -1 means "use default (row * num_tile_cols + col) * tile_size routing".
+     * Populated from oapv_mip_request::tile_dst_slots when that field is set. */
+    int dst_slot;
+
     // Pointer to shared mip-level context (read-only, shared among all tiles of this mip)
     const mip_context_t *mip_ctx;
 } tile_work_t;
@@ -3450,17 +3456,28 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
                 /* Tiled output: tile-major layout with planes interleaved within
                  * each tile. Each tile occupies `tile_size` bytes; plane c's data
                  * lives at the same intra-tile offset for every tile, and `a[c]`
-                 * is pre-biased to point at that offset in tile 0. So tile (col,row)
-                 * for component c starts at:
+                 * is pre-biased to point at that offset in tile 0.
+                 *
+                 * Default routing: tile (col,row) for component c starts at:
                  *     a[c] + (row * num_tile_cols + col) * tile_size
+                 *
+                 * Virtualized routing (work->dst_slot >= 0): caller has assigned
+                 * this tile to a specific physical slot in a bounded output
+                 * buffer. The dest offset becomes (dst_slot * tile_size).
                  *
                  * With tile_for_comp.x/y reset to 0 below, dec_tile_comp's inner
                  * loop writes blocks at tile-local coords [0..tile_h_c) x
                  * [0..tile_w_c), so we just pass the per-tile row stride. */
                 const int    tile_stride_c = mip_ctx->output_buffer->tile_stride[c];
-                const int    ntc           = mip_ctx->output_buffer->num_tile_cols;
                 const size_t tile_bytes    = (size_t)mip_ctx->output_buffer->tile_size;
-                const size_t tile_offset   = ((size_t)work->row * (size_t)ntc + (size_t)work->col) * tile_bytes;
+                size_t       tile_offset;
+                if(work->dst_slot >= 0) {
+                    tile_offset = (size_t)work->dst_slot * tile_bytes;
+                }
+                else {
+                    const int ntc = mip_ctx->output_buffer->num_tile_cols;
+                    tile_offset = ((size_t)work->row * (size_t)ntc + (size_t)work->col) * tile_bytes;
+                }
                 tile_dst          = (u16*)((u8*)mip_ctx->output_buffer->a[c] + tile_offset);
                 comp_stride_bytes = tile_stride_c;
             }
@@ -3779,6 +3796,9 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream,
             work->tile_idx = tile_idx;
             work->col = col;
             work->row = row;
+            work->dst_slot = (mip_info->mip_req->tile_dst_slots != NULL)
+                ? mip_info->mip_req->tile_dst_slots[t]
+                : -1;
             work->status = DEC_TILE_STAT_NOT_READY;  /* Tile data not yet loaded */
             work->mip_ctx = mip_ctx;  /* Point to shared mip context */
 
