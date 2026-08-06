@@ -42,6 +42,15 @@
 
 #define WINDOWS_MUTEX_SYNC 0
 
+void oapv_tpool_yield(void)
+{
+#if !defined(WIN32) && !defined(WIN64)
+    sched_yield();
+#else
+    Sleep(0);
+#endif
+}
+
 #if !defined(WIN32) && !defined(WIN64)
 
 typedef struct thread_ctx {
@@ -341,6 +350,20 @@ void oapv_tpool_leave_cs(oapv_sync_obj_t sobj)
 {
     thread_mutex_t *imutex = (thread_mutex_t *)(sobj);
     pthread_mutex_unlock(&imutex->lmutex);
+}
+
+int oapv_tpool_atomic_inc(oapv_sync_obj_t sobj, volatile int *pcnt)
+{
+    thread_mutex_t *imutex = (thread_mutex_t *)(sobj);
+    int             temp = 0;
+
+    // lock the mutex, increment the count and release the mutex
+    pthread_mutex_lock(&imutex->lmutex);
+    temp = *pcnt;
+    *pcnt = ++temp;
+    pthread_mutex_unlock(&imutex->lmutex);
+
+    return temp;
 }
 
 #else
@@ -654,6 +677,19 @@ void oapv_tpool_leave_cs(oapv_sync_obj_t sobj)
 {
     thread_mutex_t *imutex = (thread_mutex_t *)(sobj);
     LeaveCriticalSection(&imutex->c_section);
+}
+
+int oapv_tpool_atomic_inc(oapv_sync_obj_t sobj, volatile int *pcnt)
+{
+    thread_mutex_t *imutex = (thread_mutex_t *)(sobj);
+    int             temp = 0;
+
+    EnterCriticalSection(&imutex->c_section);
+    temp = *pcnt;
+    *pcnt = ++temp;
+    LeaveCriticalSection(&imutex->c_section);
+
+    return temp;
 }
 
 #endif
