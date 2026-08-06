@@ -187,7 +187,7 @@ oapvd_info_frame(pbu_buf, pbu_size, &finfo)
 // query the position of every tile, if needed
 pos = malloc(finfo.num_tiles * sizeof(oapv_tile_pos_t))
 num = finfo.num_tiles
-oapvd_info_tile(pbu_buf, pbu_size, pos, &num)
+oapvd_info_tile(pbu_buf, pbu_size, pos, NULL, &num)
 
 // select the tiles to decode, e.g. the ones covering a viewport
 part_tile_idxs = { 3, 4, 7, 8 }
@@ -197,6 +197,24 @@ imgb = create_image_buffer(finfo.w, finfo.h, finfo.cs)
 oapvd_decode_frame(did, &bitb, imgb, &stat, num_part_tiles, part_tile_idxs)
 // only the selected tile regions of imgb are filled
 ```
+
+`oapvd_info_tile()` can also report the per-tile sizes carried in the frame
+header when `tile_size_present_in_fh_flag` is set (the encoder writes them by
+default; see `--disable-tile-size-in-fh`). Either output array may be `NULL`:
+
+```
+sizes = malloc(finfo.num_tiles * sizeof(unsigned int))
+num = finfo.num_tiles
+oapvd_info_tile(pbu_buf, pbu_size, NULL, sizes, &num)
+// sizes[i] is the coded size of tile i, or 0 if the frame header
+// does not carry tile sizes (a valid tile size is never 0)
+```
+
+This allows a tile's byte range within the frame to be computed without
+decoding it, which is what tile-indexed random access over a stream needs.
+Passing `NULL` for both arrays queries only the tile count, and a capacity
+smaller than the tile count returns `OAPV_ERR_REACHED_MAX` with the required
+count written back to `num`.
 
 Passing `0, NULL` decodes every tile. The regions of unselected tiles are
 left untouched, so clear or reuse the image buffer accordingly.

@@ -2302,7 +2302,7 @@ ERR:
     return ret;
 }
 
-int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, int *num_tiles)
+int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, unsigned int *tile_sizes, int *num_tiles)
 {
     oapv_bs_t    bs;
     oapv_pbuh_t  pbuh;
@@ -2311,8 +2311,13 @@ int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, int *nu
     int          pic_w_mb, pic_h_mb, tile_cols, tile_rows, n;
 
     oapv_assert_rv(pbu != NULL && num_tiles != NULL, OAPV_ERR_INVALID_ARGUMENT);
-    oapv_assert_rv(pos_tiles == NULL || *num_tiles >= 0, OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv((pos_tiles == NULL && tile_sizes == NULL) || *num_tiles >= 0, OAPV_ERR_INVALID_ARGUMENT);
     oapv_assert_rv(pbu_size >= (OAPV_PBU_HEADER_BYTE + OAPV_FRAME_INFO_BYTE), OAPV_ERR_INVALID_ARGUMENT);
+
+    /* capacity of the caller's output arrays; the parser bounds its writes to
+     * this, so a short buffer is truncated here and reported below. */
+    int cap = (pos_tiles != NULL || tile_sizes != NULL) ? *num_tiles : 0;
+
     oapv_bsr_init(&bs, pbu, pbu_size, NULL);
 
     DUMP_SET(0);
@@ -2324,7 +2329,7 @@ int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, int *nu
     oapv_assert_gv(OAPV_PBU_TYPE_IS_FRAME(pbuh.pbu_type), ret, OAPV_ERR_INVALID_ARGUMENT, ERR);
 
     // decode frame header
-    ret = oapvd_vlc_frame_header(&bs, &fh, NULL, 0);
+    ret = oapvd_vlc_frame_header(&bs, &fh, tile_sizes, cap);
     oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
     pic_w_mb = (fh.fi.frame_width + (OAPV_MB_W - 1)) >> OAPV_LOG2_MB_W;
@@ -2336,7 +2341,7 @@ int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, int *nu
     ret = oapv_validate_tile_topology(fh.fi.profile_idc, tile_cols, tile_rows, &n);
     oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
-    if(pos_tiles == NULL) { // query the number of tiles only
+    if(pos_tiles == NULL && tile_sizes == NULL) { // query the number of tiles only
         *num_tiles = n;
         DUMP_SET(1);
         return OAPV_OK;
@@ -2345,6 +2350,18 @@ int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, int *nu
         *num_tiles = n;
         DUMP_SET(1);
         return OAPV_ERR_REACHED_MAX;
+    }
+
+    /* Valid tile sizes are always non-zero, so zero unambiguously reports
+     * "not carried in this frame header" when the flag is not set. */
+    if(tile_sizes != NULL && !fh.tile_size_present_in_fh_flag) {
+        oapv_mset(tile_sizes, 0, sizeof(u32) * n);
+    }
+
+    if(pos_tiles == NULL) { // tile sizes only
+        *num_tiles = n;
+        DUMP_SET(1);
+        return OAPV_OK;
     }
 
     oapv_tile_pos_t *tpos = pos_tiles;
