@@ -813,7 +813,13 @@ static int dec_vlc_q_matrix(oapv_bs_t *bs, oapv_fh_t *fh)
     return OAPV_OK;
 }
 
-static int dec_vlc_tile_info(oapv_bs_t *bs, oapv_fh_t *fh)
+/* Parses tile_info(). When 'tile_sizes' is non-NULL the per-tile sizes carried
+ * in the frame header are retained into that caller-owned buffer (capacity
+ * 'tile_sizes_cap' entries) instead of being discarded; this lets a caller
+ * index individual tiles without decoding the frame, which is the purpose of
+ * tile_size_present_in_fh_flag. The buffer is supplied by the caller so the
+ * header parser performs no allocation driven by bitstream values. */
+static int dec_vlc_tile_info(oapv_bs_t *bs, oapv_fh_t *fh, u32 *tile_sizes, int tile_sizes_cap)
 {
     int ret;
     int pic_w, pic_h, tile_w, tile_h, tile_cols, tile_rows;
@@ -843,10 +849,18 @@ static int dec_vlc_tile_info(oapv_bs_t *bs, oapv_fh_t *fh)
     DUMP_HLS(fh->tile_size_present_in_fh_flag, fh->tile_size_present_in_fh_flag);
 
     if(fh->tile_size_present_in_fh_flag) {
-        for(int i = 0; i < tile_cols * tile_rows; i++) {
-            u32 tile_size = oapv_bsr_read(bs, 32); // parsed for validation only
+        /* tile_cols * tile_rows cannot overflow int: the topology validation
+         * above already bounded the product to INT_MAX. */
+        int num_tiles = tile_cols * tile_rows;
+        for(int i = 0; i < num_tiles; i++) {
+            u32 tile_size = oapv_bsr_read(bs, 32);
             DUMP_HLS(fh->tile_size, tile_size);
             oapv_assert_rv(tile_size > 0, OAPV_ERR_MALFORMED_BITSTREAM);
+            /* retain into the caller's buffer when one was supplied and has
+             * room; parsing continues regardless so validation is unchanged. */
+            if(tile_sizes != NULL && i < tile_sizes_cap) {
+                tile_sizes[i] = tile_size;
+            }
         }
     }
     return OAPV_OK;
@@ -1106,7 +1120,10 @@ int oapvd_vlc_au_info(oapv_bs_t *bs, oapv_aui_t *aui)
     return OAPV_OK;
 }
 
-int oapvd_vlc_frame_header(oapv_bs_t *bs, oapv_fh_t *fh)
+/* 'tile_sizes' (optional, may be NULL) receives the per-tile sizes carried in
+ * the frame header when tile_size_present_in_fh_flag is set; see
+ * dec_vlc_tile_info. 'tile_sizes_cap' is its capacity in entries. */
+int oapvd_vlc_frame_header(oapv_bs_t *bs, oapv_fh_t *fh, u32 *tile_sizes, int tile_sizes_cap)
 {
     int ret, reserved_zero;
     ret = oapvd_vlc_frame_info(bs, &fh->fi);
@@ -1142,7 +1159,7 @@ int oapvd_vlc_frame_header(oapv_bs_t *bs, oapv_fh_t *fh)
         oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
     }
 
-    ret = dec_vlc_tile_info(bs, fh);
+    ret = dec_vlc_tile_info(bs, fh, tile_sizes, tile_sizes_cap);
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
     reserved_zero = oapv_bsr_read(bs, 8);

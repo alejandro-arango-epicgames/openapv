@@ -2100,7 +2100,7 @@ int oapvd_decode(oapvd_t did, oapv_bitb_t *bitb, oapv_frms_t *ofrms, oapvm_t mid
 
             oapv_assert_gv(nfrms < OAPV_MAX_NUM_FRAMES, ret, OAPV_ERR_REACHED_MAX, ERR);
 
-            ret = oapvd_vlc_frame_header(bs, &ctx->fh);
+            ret = oapvd_vlc_frame_header(bs, &ctx->fh, NULL, 0);
             oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
             ret = dec_frm_prepare(ctx, 0, NULL, ofrms->frm[nfrms].imgb);
@@ -2245,7 +2245,7 @@ int oapvd_info(void *au, int au_size, oapv_au_info_t *aui)
             oapv_fh_t fh;
 
             oapv_assert_rv(frm_count < OAPV_MAX_NUM_FRAMES, OAPV_ERR_REACHED_MAX)
-            ret = oapvd_vlc_frame_header(&bs, &fh);
+            ret = oapvd_vlc_frame_header(&bs, &fh, NULL, 0);
             oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
             fh_to_finfo(&fh, pbuh.pbu_type, pbuh.group_id, &aui->frm_info[frm_count]);
@@ -2292,7 +2292,7 @@ int oapvd_info_frame(void *pbu, int pbu_size, oapv_frm_info_t *frm_info)
     oapv_assert_gv(OAPV_PBU_TYPE_IS_FRAME(pbuh.pbu_type), ret, OAPV_ERR_INVALID_ARGUMENT, ERR);
 
     // decode frame header
-    ret = oapvd_vlc_frame_header(&bs, &fh);
+    ret = oapvd_vlc_frame_header(&bs, &fh, NULL, 0);
     oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
     fh_to_finfo(&fh, pbuh.pbu_type, pbuh.group_id, frm_info);
@@ -2324,7 +2324,7 @@ int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, int *nu
     oapv_assert_gv(OAPV_PBU_TYPE_IS_FRAME(pbuh.pbu_type), ret, OAPV_ERR_INVALID_ARGUMENT, ERR);
 
     // decode frame header
-    ret = oapvd_vlc_frame_header(&bs, &fh);
+    ret = oapvd_vlc_frame_header(&bs, &fh, NULL, 0);
     oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
     pic_w_mb = (fh.fi.frame_width + (OAPV_MB_W - 1)) >> OAPV_LOG2_MB_W;
@@ -2406,7 +2406,7 @@ int oapvd_decode_frame(oapvd_t did, oapv_bitb_t *bitb, oapv_imgb_t *imgb, oapvd_
     oapv_assert_gv(OAPV_PBU_TYPE_IS_FRAME(pbuh.pbu_type), ret, OAPV_ERR_INVALID_ARGUMENT, ERR);
 
     // parse frame header
-    ret = oapvd_vlc_frame_header(bs, &ctx->fh);
+    ret = oapvd_vlc_frame_header(bs, &ctx->fh, NULL, 0);
     oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
 
     // be ready to decode start

@@ -60,7 +60,9 @@ int  oapvd_vlc_pbu_size(oapv_bs_t* bs, u32 *pbu_size);
 int  oapvd_vlc_pbu_header(oapv_bs_t* bs, oapv_pbuh_t* pbuh);
 int  oapvd_vlc_au_info(oapv_bs_t* bs, oapv_aui_t* aui);
 
-int  oapvd_vlc_frame_header(oapv_bs_t* bs, oapv_fh_t* fh);
+/* 'tile_sizes' is optional (NULL to discard); when supplied it receives the
+ * per-tile sizes from the frame header, bounded by 'tile_sizes_cap' entries. */
+int  oapvd_vlc_frame_header(oapv_bs_t* bs, oapv_fh_t* fh, u32 *tile_sizes, int tile_sizes_cap);
 int  oapvd_vlc_frame_info(oapv_bs_t* bs, oapv_fi_t *fi);
 int  oapvd_vlc_tile_size(oapv_bs_t *bs, u32 *tile_size);
 int  oapvd_vlc_tile_header(oapv_bs_t *bs, int num_comp, oapv_th_t *th, u32 tiles_data_size, int bit_depth);
