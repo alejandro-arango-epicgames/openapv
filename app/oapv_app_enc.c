@@ -736,8 +736,8 @@ static int family_to_bitrate(char * family, oapve_param_t *param)
         } \
     }
 
-/* True if 'profile_idc' is already an UNCONST extension, which imposes no tile
- * count or tile size constraints. */
+/* True if 'profile_idc' is an UNCONST extension, which imposes no tile count or
+ * tile size constraints. */
 static int profile_is_unconst(int profile_idc)
 {
     switch(profile_idc) {
@@ -754,58 +754,51 @@ static int profile_is_unconst(int profile_idc)
     }
 }
 
-/* Returns the UNCONST extension of 'profile_idc', or 0 if it has none. */
-static int profile_to_unconst(int profile_idc)
+/* Returns the name of the UNCONST extension of 'profile_idc', or NULL if it has
+ * none, for use in diagnostics. */
+static const char *profile_unconst_name(int profile_idc)
 {
     switch(profile_idc) {
-    case OAPV_PROFILE_422_10:  return OAPV_PROFILE_422_10_UNCONST;
-    case OAPV_PROFILE_422_12:  return OAPV_PROFILE_422_12_UNCONST;
-    case OAPV_PROFILE_444_10:  return OAPV_PROFILE_444_10_UNCONST;
-    case OAPV_PROFILE_444_12:  return OAPV_PROFILE_444_12_UNCONST;
-    case OAPV_PROFILE_4444_10: return OAPV_PROFILE_4444_10_UNCONST;
-    case OAPV_PROFILE_4444_12: return OAPV_PROFILE_4444_12_UNCONST;
-    case OAPV_PROFILE_400_10:  return OAPV_PROFILE_400_10_UNCONST;
-    default:                   return 0;
+    case OAPV_PROFILE_422_10:  return "422-10-UNCONST";
+    case OAPV_PROFILE_422_12:  return "422-12-UNCONST";
+    case OAPV_PROFILE_444_10:  return "444-10-UNCONST";
+    case OAPV_PROFILE_444_12:  return "444-12-UNCONST";
+    case OAPV_PROFILE_4444_10: return "4444-10-UNCONST";
+    case OAPV_PROFILE_4444_12: return "4444-12-UNCONST";
+    case OAPV_PROFILE_400_10:  return "400-10-UNCONST";
+    default:                   return NULL;
     }
 }
 
-/* A frame whose authored tile size does not fit the constraints of its profile
- * would otherwise have its tiles silently enlarged to fit a 20x20 grid, which
- * changes the tile granularity the bitstream was authored for. Switching to the
- * profile's UNCONST extension keeps the requested tile size instead.
- *
- * Returns 1 if the profile was changed. */
-static int promote_profile_if_needed(oapve_param_t *param)
+/* A requested tile size that does not fit the constraints of the selected
+ * profile is not an error: the encoder enlarges the tiles until the grid fits.
+ * That silently changes the tile granularity the stream was authored for, so
+ * say so and name the profile that would preserve it. The parameters are left
+ * untouched; selecting a different profile is the operator's call. */
+static void warn_if_tiles_will_be_resized(const oapve_param_t *param)
 {
     if(param->tile_w <= 0 || param->tile_h <= 0) {
-        return 0; // tile size not explicitly requested; nothing to preserve
+        return; // no tile size requested; nothing to preserve
     }
     if(profile_is_unconst(param->profile_idc)) {
-        return 0; // already unconstrained; any tile grid and size is allowed
+        return; // any tile grid and size is allowed
     }
 
     int cols = (param->w + param->tile_w - 1) / param->tile_w;
     int rows = (param->h + param->tile_h - 1) / param->tile_h;
-    int fits = (cols <= OAPV_MAX_TILE_COLS && rows <= OAPV_MAX_TILE_ROWS &&
-                param->tile_w >= OAPV_MIN_TILE_W && param->tile_h >= OAPV_MIN_TILE_H);
-    if(fits) {
-        return 0;
+    if(cols <= OAPV_MAX_TILE_COLS && rows <= OAPV_MAX_TILE_ROWS &&
+       param->tile_w >= OAPV_MIN_TILE_W && param->tile_h >= OAPV_MIN_TILE_H) {
+        return;
     }
 
-    int unconst = profile_to_unconst(param->profile_idc);
-    if(unconst == 0) {
-        logerr("ERR: %dx%d tiles over %dx%d need %d x %d tiles, which exceeds the "
-               "constraints of profile %d, and that profile has no UNCONST extension\n",
-               param->tile_w, param->tile_h, param->w, param->h, cols, rows,
-               param->profile_idc);
-        return -1;
+    const char *unconst = profile_unconst_name(param->profile_idc);
+    logv2("WARNING: %dx%d tiles over %dx%d need a %dx%d grid, which exceeds the "
+          "constraints of profile %d; the encoder will enlarge the tiles to fit\n",
+          param->tile_w, param->tile_h, param->w, param->h, cols, rows,
+          param->profile_idc);
+    if(unconst != NULL) {
+        logv2("         use --profile %s to keep the requested tile size\n", unconst);
     }
-
-    logv2("Tile grid %dx%d (%dx%d tiles) exceeds the constraints of profile %d; "
-          "using profile %d to keep the requested tile size\n",
-          cols, rows, param->tile_w, param->tile_h, param->profile_idc, unconst);
-    param->profile_idc = unconst;
-    return 1;
 }
 
 static int update_param(args_var_t *vars, oapve_param_t *param)
@@ -1138,10 +1131,7 @@ int main(int argc, const char **argv)
             cdesc.param[frame_idx] = *param; // inherit the primary frame's settings
             cdesc.param[frame_idx].w = w;
             cdesc.param[frame_idx].h = h;
-            if(promote_profile_if_needed(&cdesc.param[frame_idx]) < 0) {
-                ret = -1;
-                goto ERR;
-            }
+            warn_if_tiles_will_be_resized(&cdesc.param[frame_idx]);
             num_mips++;
         }
 
@@ -1153,11 +1143,7 @@ int main(int argc, const char **argv)
         }
     }
 
-    /* The primary frame is promoted last so the log reads top-down by level. */
-    if(promote_profile_if_needed(param) < 0) {
-        ret = -1;
-        goto ERR;
-    }
+    warn_if_tiles_will_be_resized(param);
 
     cdesc.max_bs_buf_size = MAX_BS_BUF; /* maximum bitstream buffer size */
     cdesc.max_num_frms = NUM_PRI_FRMS + num_mips;
