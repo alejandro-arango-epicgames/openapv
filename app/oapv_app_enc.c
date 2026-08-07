@@ -35,7 +35,8 @@
 #include "oapv_app_y4m.h"
 
 #define MAX_BS_BUF   (128 * 1024 * 1024)
-#define MAX_NUM_FRMS (1)           // supports only 1-frame in an access unit
+#define NUM_PRI_FRMS (1)                    // primary frames in an access unit
+#define MAX_NUM_FRMS (OAPV_MAX_NUM_FRAMES)  // primary frame plus mip levels
 #define FRM_IDX      (0)           // supports only 1-frame in an access unit
 #define MAX_NUM_CC   (OAPV_MAX_CC) // Max number of color components (upto 4:4:4:4)
 
@@ -283,6 +284,11 @@ static const args_opt_t enc_args_opts[] = {
         "do not write tile size values into the frame header"
     },
     {
+        ARGS_NO_KEY,  "mips", ARGS_VAL_TYPE_NONE, 0, NULL, 0,
+        "encode a mip chain: each access unit carries the frame plus successively "
+        "half-sized copies as non-primary frames"
+    },
+    {
         ARGS_NO_KEY,  "master-display", ARGS_VAL_TYPE_STRING, 0, NULL, 0,
         "mastering display color volume metadata"
     },
@@ -305,6 +311,7 @@ typedef struct args_var {
     int            max_au;
     int            hash;
     int            disable_tile_size_in_fh;
+    int            mips;
     int            input_depth;
     int            input_csp;
     int            seek;
@@ -364,6 +371,7 @@ static args_var_t *args_init_vars(args_parser_t *args, oapve_param_t *param)
     args_set_variable_by_key_long(opts, "max-au", &vars->max_au, 0);
     args_set_variable_by_key_long(opts, "hash", &vars->hash, 0);
     args_set_variable_by_key_long(opts, "disable-tile-size-in-fh", &vars->disable_tile_size_in_fh, 0);
+    args_set_variable_by_key_long(opts, "mips", &vars->mips, 0);
     args_set_variable_by_key_long(opts, "verbose", &op_verbose, 0);
     op_verbose = VERBOSE_SIMPLE; /* default */
     args_set_variable_by_key_long(opts, "input-depth", &vars->input_depth, 0);
@@ -728,6 +736,78 @@ static int family_to_bitrate(char * family, oapve_param_t *param)
         } \
     }
 
+/* True if 'profile_idc' is already an UNCONST extension, which imposes no tile
+ * count or tile size constraints. */
+static int profile_is_unconst(int profile_idc)
+{
+    switch(profile_idc) {
+    case OAPV_PROFILE_422_10_UNCONST:
+    case OAPV_PROFILE_422_12_UNCONST:
+    case OAPV_PROFILE_444_10_UNCONST:
+    case OAPV_PROFILE_444_12_UNCONST:
+    case OAPV_PROFILE_4444_10_UNCONST:
+    case OAPV_PROFILE_4444_12_UNCONST:
+    case OAPV_PROFILE_400_10_UNCONST:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Returns the UNCONST extension of 'profile_idc', or 0 if it has none. */
+static int profile_to_unconst(int profile_idc)
+{
+    switch(profile_idc) {
+    case OAPV_PROFILE_422_10:  return OAPV_PROFILE_422_10_UNCONST;
+    case OAPV_PROFILE_422_12:  return OAPV_PROFILE_422_12_UNCONST;
+    case OAPV_PROFILE_444_10:  return OAPV_PROFILE_444_10_UNCONST;
+    case OAPV_PROFILE_444_12:  return OAPV_PROFILE_444_12_UNCONST;
+    case OAPV_PROFILE_4444_10: return OAPV_PROFILE_4444_10_UNCONST;
+    case OAPV_PROFILE_4444_12: return OAPV_PROFILE_4444_12_UNCONST;
+    case OAPV_PROFILE_400_10:  return OAPV_PROFILE_400_10_UNCONST;
+    default:                   return 0;
+    }
+}
+
+/* A frame whose authored tile size does not fit the constraints of its profile
+ * would otherwise have its tiles silently enlarged to fit a 20x20 grid, which
+ * changes the tile granularity the bitstream was authored for. Switching to the
+ * profile's UNCONST extension keeps the requested tile size instead.
+ *
+ * Returns 1 if the profile was changed. */
+static int promote_profile_if_needed(oapve_param_t *param)
+{
+    if(param->tile_w <= 0 || param->tile_h <= 0) {
+        return 0; // tile size not explicitly requested; nothing to preserve
+    }
+    if(profile_is_unconst(param->profile_idc)) {
+        return 0; // already unconstrained; any tile grid and size is allowed
+    }
+
+    int cols = (param->w + param->tile_w - 1) / param->tile_w;
+    int rows = (param->h + param->tile_h - 1) / param->tile_h;
+    int fits = (cols <= OAPV_MAX_TILE_COLS && rows <= OAPV_MAX_TILE_ROWS &&
+                param->tile_w >= OAPV_MIN_TILE_W && param->tile_h >= OAPV_MIN_TILE_H);
+    if(fits) {
+        return 0;
+    }
+
+    int unconst = profile_to_unconst(param->profile_idc);
+    if(unconst == 0) {
+        logerr("ERR: %dx%d tiles over %dx%d need %d x %d tiles, which exceeds the "
+               "constraints of profile %d, and that profile has no UNCONST extension\n",
+               param->tile_w, param->tile_h, param->w, param->h, cols, rows,
+               param->profile_idc);
+        return -1;
+    }
+
+    logv2("Tile grid %dx%d (%dx%d tiles) exceeds the constraints of profile %d; "
+          "using profile %d to keep the requested tile size\n",
+          cols, rows, param->tile_w, param->tile_h, param->profile_idc, unconst);
+    param->profile_idc = unconst;
+    return 1;
+}
+
 static int update_param(args_var_t *vars, oapve_param_t *param)
 {
     UPDATE_A_PARAM_W_KEY_VAL(param, "profile", vars->profile);
@@ -913,7 +993,8 @@ int main(int argc, const char **argv)
     int            is_out = 0, is_rec = 0;
     char          *errstr = NULL;
     int            cfmt;                      // color format
-    const int      num_frames = MAX_NUM_FRMS; // number of frames in an access unit
+    int            num_mips = 0;          // mip levels encoded as non-primary frames
+    int            num_frames = NUM_PRI_FRMS; // frames in an access unit
 
     // print logo
     logv2("  ____                ___   ___ _   __\n");
@@ -1034,8 +1115,52 @@ int main(int argc, const char **argv)
         goto ERR;
     }
 
+    /* Build the mip chain: each level halves the previous one, stopping when a
+     * further halving would break the chroma subsampling or fall below one
+     * tile. Every level gets its own parameter slot, so each carries its own
+     * dimensions and (if promoted) its own profile. */
+    num_mips = 0;
+    if(args_var->mips) {
+        for(int w = param->w / 2, h = param->h / 2;; w /= 2, h /= 2) {
+            int frame_idx = NUM_PRI_FRMS + num_mips;
+            if(frame_idx >= MAX_NUM_FRMS) {
+                logv2("Mip chain limited to %d levels by OAPV_MAX_NUM_FRAMES\n", num_mips);
+                break;
+            }
+            if(w < OAPV_MB_W || h < OAPV_MB_H) {
+                break; // smaller than a macroblock
+            }
+            if((cfmt == OAPV_CF_YCBCR422 || cfmt == OAPV_CF_PLANAR2) && (w & 1)) {
+                logv2("Mip chain stopped at %dx%d: width must stay even for 422\n", w, h);
+                break;
+            }
+
+            cdesc.param[frame_idx] = *param; // inherit the primary frame's settings
+            cdesc.param[frame_idx].w = w;
+            cdesc.param[frame_idx].h = h;
+            if(promote_profile_if_needed(&cdesc.param[frame_idx]) < 0) {
+                ret = -1;
+                goto ERR;
+            }
+            num_mips++;
+        }
+
+        logv2("Encoding %d mip level(s) alongside the primary frame:\n", num_mips);
+        logv2("  mip 0: %dx%d (primary)\n", param->w, param->h);
+        for(int i = 0; i < num_mips; i++) {
+            logv2("  mip %d: %dx%d\n", i + 1,
+                  cdesc.param[NUM_PRI_FRMS + i].w, cdesc.param[NUM_PRI_FRMS + i].h);
+        }
+    }
+
+    /* The primary frame is promoted last so the log reads top-down by level. */
+    if(promote_profile_if_needed(param) < 0) {
+        ret = -1;
+        goto ERR;
+    }
+
     cdesc.max_bs_buf_size = MAX_BS_BUF; /* maximum bitstream buffer size */
-    cdesc.max_num_frms = MAX_NUM_FRMS;
+    cdesc.max_num_frms = NUM_PRI_FRMS + num_mips;
     if(!strcmp(args_var->threads, "auto")){
         cdesc.threads = OAPV_CDESC_THREADS_AUTO;
     }
@@ -1149,7 +1274,7 @@ int main(int argc, const char **argv)
         goto ERR;
     }
 
-    for(int i = 0; i < num_frames; i++) {
+    for(int i = 0; i < NUM_PRI_FRMS; i++) {
         if(args_var->input_depth == codec_depth) {
             ifrms.frm[i].imgb = imgb_create(param->w, param->h, OAPV_CS_SET(cfmt, args_var->input_depth, 0));
         }
@@ -1186,6 +1311,21 @@ int main(int argc, const char **argv)
         ifrms.num_frms++;
     }
 
+    /* Mip levels are derived from the already-converted primary frame, so they
+     * are allocated directly in the codec's format and depth. */
+    for(int i = 0; i < num_mips; i++) {
+        int frame_idx = NUM_PRI_FRMS + i;
+        ifrms.frm[frame_idx].imgb = imgb_create(cdesc.param[frame_idx].w,
+                                                cdesc.param[frame_idx].h,
+                                                OAPV_CS_SET(cfmt, codec_depth, 0));
+        if(ifrms.frm[frame_idx].imgb == NULL) { ret = -1; goto ERR; }
+        /* Non-primary frames need a distinct group id. */
+        ifrms.frm[frame_idx].group_id = 2 + i;
+        ifrms.frm[frame_idx].pbu_type = OAPV_PBU_TYPE_NON_PRIMARY_FRAME;
+        ifrms.num_frms++;
+    }
+    num_frames = NUM_PRI_FRMS + num_mips;
+
     /* ready metadata if needs */
     if(update_metadata(args_var, mid)) {
         logerr("ERR: failed to update metadata");
@@ -1195,7 +1335,7 @@ int main(int argc, const char **argv)
 
     /* encode pictures *******************************************************/
     while(args_var->max_au == 0 || (au_cnt < args_var->max_au)) {
-        for(int i = 0; i < num_frames; i++) {
+        for(int i = 0; i < NUM_PRI_FRMS; i++) {
             if(args_var->input_depth == codec_depth || cfmt == OAPV_CF_PLANAR2) {
                 imgb_i = ifrms.frm[i].imgb;
             }
@@ -1216,6 +1356,14 @@ int main(int argc, const char **argv)
             ifrms.frm[i].pbu_type = OAPV_PBU_TYPE_PRIMARY_FRAME;
         }
 
+        /* Each mip level is halved from the level above it, so the chain is
+         * built in order from the primary frame downwards. */
+        for(int mip_idx = 0; mip_idx < num_mips; mip_idx++) {
+            int dst_idx = NUM_PRI_FRMS + mip_idx;
+            int src_idx = (mip_idx == 0) ? FRM_IDX : (dst_idx - 1);
+            imgb_calc_mip(ifrms.frm[dst_idx].imgb, ifrms.frm[src_idx].imgb);
+        }
+
         if(state == STATE_ENCODING) {
             /* encoding */
             clk_beg = oapv_clk_get();
@@ -1234,7 +1382,7 @@ int main(int argc, const char **argv)
 
             print_stat_au(&stat, au_cnt, param, args_var->max_au, bitrate_tot, clk_end, clk_tot);
 
-            for(int fidx = 0; fidx < num_frames; fidx++) {
+            for(int fidx = 0; fidx < NUM_PRI_FRMS; fidx++) {
                 if(is_rec) {
                     if(args_var->input_depth != codec_depth && cfmt != OAPV_CF_PLANAR2) {
                         imgb_cpy(imgb_w, rfrms.frm[fidx].imgb);
