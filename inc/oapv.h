@@ -963,6 +963,24 @@ struct oapv_multi_mip_decode {
 
 OAPV_EXPORT int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream, oapv_multi_mip_decode_t *multi_mip_decode, oapvm_t mid, oapvd_stat_t *stat);
 
+/* Same semantics as oapvd_decode_selective_multi_mips(), but the access unit is
+ * already addressable in the caller's address space instead of being read
+ * through a stream. Intended for a memory-mapped file, where every seek/read
+ * becomes pointer arithmetic and no tile bytes are copied before decoding.
+ *
+ * 'au_data' must point at the start of the access unit, i.e. at the 4-byte
+ * au_size field, and remain readable and unmodified for the duration of the
+ * call. 'au_size' is the number of bytes available at 'au_data'; it may exceed
+ * the access unit's own length (mapping a whole container is fine) but must not
+ * be smaller, since the parse is bounds-checked against it.
+ *
+ * The decoder only reads from 'au_data'. Under a memory mapping, first touch of
+ * a page faults synchronously on the touching thread, so callers should keep
+ * this off latency-sensitive threads. */
+OAPV_EXPORT int oapvd_decode_selective_multi_mips_mem(oapvd_t did, const void *au_data, size_t au_size,
+                                                      oapv_multi_mip_decode_t *multi_mip_decode,
+                                                      oapvm_t mid, oapvd_stat_t *stat);
+
 /*****************************************************************************
  * logging
  *
