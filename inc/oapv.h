@@ -965,19 +965,20 @@ OAPV_EXPORT int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *
 
 /* Same semantics as oapvd_decode_selective_multi_mips(), but the access unit is
  * already addressable in the caller's address space instead of being read
- * through a stream. Intended for a memory-mapped file, where every seek/read
- * becomes pointer arithmetic and no tile bytes are copied before decoding.
+ * through a stream, so every seek/read becomes pointer arithmetic and no tile
+ * bytes are copied before decoding. Intended for a memory-mapped file, though
+ * any addressable buffer works.
  *
- * 'au_data' must point at the start of the access unit, i.e. at the 4-byte
- * au_size field, and remain readable and unmodified for the duration of the
- * call. 'au_size' is the number of bytes available at 'au_data'; it may exceed
- * the access unit's own length (mapping a whole container is fine) but must not
- * be smaller, since the parse is bounds-checked against it.
+ * 'bitb' follows the same contract as oapvd_decode(): 'addr' points at the
+ * access unit's signature ('aPv1'), i.e. past the leading 4-byte au_size field,
+ * and 'ssize' is the access unit's byte size. 'bsize', when non-zero, is the
+ * capacity of the buffer behind 'addr' and must be at least 'ssize'. The bytes
+ * must stay readable and unmodified for the duration of the call.
  *
- * The decoder only reads from 'au_data'. Under a memory mapping, first touch of
+ * The decoder only reads through 'addr'. Under a memory mapping, first touch of
  * a page faults synchronously on the touching thread, so callers should keep
  * this off latency-sensitive threads. */
-OAPV_EXPORT int oapvd_decode_selective_multi_mips_mem(oapvd_t did, const void *au_data, size_t au_size,
+OAPV_EXPORT int oapvd_decode_selective_multi_mips_mem(oapvd_t did, oapv_bitb_t *bitb,
                                                       oapv_multi_mip_decode_t *multi_mip_decode,
                                                       oapvm_t mid, oapvd_stat_t *stat);
 

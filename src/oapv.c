@@ -3947,36 +3947,31 @@ static int mem_rd32be(const u8 *base, size_t size, u64 off, u32 *out)
     return OAPV_OK;
 }
 
-/* AU size + signature, read in place. */
+/* Signature check, read in place.
+ *
+ * Follows oapvd_decode()'s convention for oapv_bitb_t: 'au' points at the signature, i.e.
+ * past the access unit's leading 4-byte length field, and 'au_size' is bitb->ssize. There is
+ * therefore no length prefix to parse here - the size is supplied by the caller, and the
+ * caller's buffer capacity check lives in the entry point where bitb->bsize is visible. */
 static int oapvd_validate_stream_mem(const u8 *au, size_t au_size,
                                      oapv_stream_info_t *stream_info,
                                      perf_metrics_t *metrics)
 {
     oapv_assert_rv(au && stream_info, OAPV_ERR_INVALID_ARGUMENT);
 
-    int ret = mem_rd32be(au, au_size, 0, &stream_info->au_size);
-    oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
-
-    stream_info->au_start_pos = 4;
-
     u32 signature;
-    ret = mem_rd32be(au, au_size, 4, &signature);
+    int ret = mem_rd32be(au, au_size, 0, &signature);
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
     stream_info->signature = signature;
     if(signature != 0x61507631) {
         return OAPV_ERR_MALFORMED_BITSTREAM;
     }
 
-    /* The parse below is bounded by au_size as declared in the stream, so it
-     * must not reach past what the caller actually mapped. */
-    if((u64)stream_info->au_size + 4 > (u64)au_size) {
-        log_msg(OAPV_LOG_ERROR,
-                "Access unit declares %u bytes but only %llu are mapped\n",
-                stream_info->au_size, (unsigned long long)au_size);
-        return OAPV_ERR_MALFORMED_BITSTREAM;
-    }
+    /* Positions below are offsets from 'au', which already starts at the signature. */
+    stream_info->au_start_pos = 0;
+    stream_info->au_size = (u32)au_size;
 
-    if(metrics) metrics->bytes_read += 8;
+    if(metrics) metrics->bytes_read += 4;
     return OAPV_OK;
 }
 
@@ -4148,7 +4143,7 @@ static int oapvd_parse_frame_headers_mem(const u8 *au, size_t au_size,
     return OAPV_OK;
 }
 
-int oapvd_decode_selective_multi_mips_mem(oapvd_t did, const void *au_data, size_t au_size,
+int oapvd_decode_selective_multi_mips_mem(oapvd_t did, oapv_bitb_t *bitb,
                                           oapv_multi_mip_decode_t *multi_mip_decode,
                                           oapvm_t mid, oapvd_stat_t *stat)
 {
@@ -4158,10 +4153,19 @@ int oapvd_decode_selective_multi_mips_mem(oapvd_t did, const void *au_data, size
 
     ctx = dec_id_to_ctx(did);
     oapv_assert_rv(ctx, OAPV_ERR_INVALID_ARGUMENT);
-    oapv_assert_rv(au_data && au_size >= 8, OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv(bitb && bitb->addr, OAPV_ERR_INVALID_ARGUMENT);
     oapv_assert_rv(multi_mip_decode && multi_mip_decode->num_mips > 0, OAPV_ERR_INVALID_ARGUMENT);
 
-    const u8 *au = (const u8 *)au_data;
+    /* Same bitb contract as oapvd_decode(): addr points at the signature and ssize is the
+     * access unit's byte size. bsize, when the caller sets it, is the capacity of the buffer
+     * behind addr, so it bounds ssize. */
+    oapv_assert_rv(bitb->ssize > 4, OAPV_ERR_MALFORMED_BITSTREAM);
+    if(bitb->bsize > 0) {
+        oapv_assert_rv(bitb->ssize <= bitb->bsize, OAPV_ERR_INVALID_ARGUMENT);
+    }
+
+    const u8     *au = (const u8 *)bitb->addr;
+    const size_t  au_size = (size_t)bitb->ssize;
 
     metrics.io_start_ns = get_time_ns();
 
