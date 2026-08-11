@@ -37,6 +37,18 @@ static oapv_log_callback_t current_log_callback = NULL;
 static void              *current_log_user_data = NULL;
 static int                current_log_verbosity = OAPV_LOG_WARNING;
 
+static oapv_cputrace_callbacks_t cputrace_callbacks = { NULL, NULL };
+
+#define BEGIN_CPU_TRACE(name)                                     \
+    if(cputrace_callbacks.begin_event) {                          \
+        cputrace_callbacks.begin_event(name, __FILE__, __LINE__); \
+    }
+
+#define END_CPU_TRACE()                 \
+    if(cputrace_callbacks.end_event) {  \
+        cputrace_callbacks.end_event(); \
+    }
+
 /* Simple log message for trouble shooting. */
 static void log_msg(int verbosity, const char *fmt, ...)
 {
@@ -2796,6 +2808,8 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
         tile_work_t         *work = &work_queue[tile_idx];
         const mip_context_t *mip_ctx = work->mip_ctx;
 
+        BEGIN_CPU_TRACE("DecodeTile");
+
         oapv_bs_t tile_bs;
         oapv_bsr_init(&tile_bs, (u8 *)work->data, work->size, NULL);
 
@@ -2826,6 +2840,7 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
         ret = oapvd_vlc_tile_header(&tile_bs, local_ctx.num_c, &tile.th, work->size, local_ctx.bit_depth);
         if(OAPV_FAILED(ret)) {
             work->status = MIP_TILE_WORK_ERROR;
+            END_CPU_TRACE();
             continue;
         }
 
@@ -2917,6 +2932,8 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
         else {
             work->status = MIP_TILE_WORK_ERROR;
         }
+
+        END_CPU_TRACE();
     }
 
     return OAPV_OK;
@@ -3125,10 +3142,14 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
         requested_mips[m] = multi_mip_decode->mip_requests[m].mip_level;
     }
 
+    BEGIN_CPU_TRACE("LocateMips");
     ret = dec_locate_mips(au, au_size, requested_mips, num_mips, locations, mid);
+    END_CPU_TRACE();
     if(OAPV_FAILED(ret)) {
         goto DONE;
     }
+
+    BEGIN_CPU_TRACE("BuildWorkQueue");
 
     /* Per-mip failures are reported through mip_requests[m].status; the call
        itself only fails on errors affecting the whole operation. */
@@ -3270,6 +3291,8 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
 
     oapv_ops_free(ctx, pos_tiles);
 
+    END_CPU_TRACE(); /* BuildWorkQueue */
+
     if(work_queue_idx == 0) {
         ret = OAPV_OK;
         goto DONE;
@@ -3320,6 +3343,8 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
             }
         }
 
+        BEGIN_CPU_TRACE("DecodeTiles");
+
         /* The main thread decodes alongside the workers. Under a memory
            mapping, first touch of each tile faults here, inside the decode, on
            whichever thread claimed it. */
@@ -3337,6 +3362,8 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
         }
 
         oapv_tpool_sync_obj_delete(&sync_obj);
+
+        END_CPU_TRACE(); /* DecodeTiles */
 
         /* A tile that failed to decode marks its mip's request, so the caller
            can tell a partially decoded level from a clean one. */
@@ -3391,4 +3418,22 @@ void oapv_set_logging_callback(oapv_log_callback_t callback, void *user_data)
 void oapv_set_logging_verbosity(int verbosity)
 {
     current_log_verbosity = verbosity;
+}
+
+/* See oapv.h for the usage contract (NULL resets to defaults; not safe to call
+   while codec instances are live). */
+int oapv_set_cputrace_callbacks(const oapv_cputrace_callbacks_t *callbacks)
+{
+    // Passing NULL resets to the default (no-op) trace callbacks.
+    if(callbacks == NULL) {
+        oapv_cputrace_callbacks_t defaults = { NULL, NULL };
+        cputrace_callbacks = defaults;
+        return OAPV_OK;
+    }
+    // Both callbacks must be provided, so the macros never test one and call the other.
+    if(callbacks->begin_event && callbacks->end_event) {
+        cputrace_callbacks = *callbacks;
+        return OAPV_OK;
+    }
+    return OAPV_ERR_INVALID_ARGUMENT;
 }

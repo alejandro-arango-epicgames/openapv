@@ -996,6 +996,25 @@ typedef void (*oapv_log_callback_t)(const char *message, int verbosity, void *us
 OAPV_EXPORT void oapv_set_logging_callback(oapv_log_callback_t callback, void *userdata);
 OAPV_EXPORT void oapv_set_logging_verbosity(int verbosity);
 
+/*****************************************************************************
+ * cpu event tracing
+ *
+ * Optional instrumentation hooks for profilers. Both callbacks must be
+ * non-NULL, or the call fails with OAPV_ERR_INVALID_ARGUMENT; passing a NULL
+ * 'callbacks' pointer resets to the default (no-op) hooks.
+ *
+ * Not thread-safe and not safe to call while any codec instance is live: set
+ * this once during process initialization, before creating any encoder or
+ * decoder, and do not change it afterward.
+ *****************************************************************************/
+typedef struct oapv_cputrace_callbacks oapv_cputrace_callbacks_t;
+struct oapv_cputrace_callbacks {
+    void (*begin_event)(const char *name, const char *file, int line);
+    void (*end_event)(void);
+};
+
+OAPV_EXPORT int oapv_set_cputrace_callbacks(const oapv_cputrace_callbacks_t *callbacks);
+
 
 #ifdef __cplusplus
 } /* extern "C" */
