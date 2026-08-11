@@ -3936,6 +3936,112 @@ first_batch_done:
  * decoding thread rather than an explicit read issued by the caller.
  *****************************************************************************/
 
+/* Faults in the byte ranges the selected tiles occupy, before decoding starts.
+ *
+ * Without this, the first touch of each page is a synchronous fault taken inside decode on
+ * whichever worker claimed the tile, so I/O depth is bounded by the thread count and the
+ * ranges are never coalesced. Doing it up front lets the OS see the whole request at once.
+ *
+ * 'ranges' is an array of 2*count u64s as [start, end) offsets from 'base'; it is coalesced
+ * in place first, so nearby tiles become one request. Returns the number of bytes covered. */
+static u64 mem_prefetch_ranges(const u8 *base, u64 *ranges, int count, int mode)
+{
+    if(count <= 0 || mode == OAPV_INPUT_PREFETCH_OFF) {
+        return 0;
+    }
+
+    /* Sort by start offset. Insertion sort: 'count' is the requested tile count, and the
+     * array is already close to sorted because tiles are appended in mip then raster order. */
+    for(int i = 1; i < count; i++) {
+        u64 s = ranges[i * 2], e = ranges[i * 2 + 1];
+        int j = i - 1;
+        while(j >= 0 && ranges[j * 2] > s) {
+            ranges[(j + 1) * 2] = ranges[j * 2];
+            ranges[(j + 1) * 2 + 1] = ranges[j * 2 + 1];
+            j--;
+        }
+        ranges[(j + 1) * 2] = s;
+        ranges[(j + 1) * 2 + 1] = e;
+    }
+
+    /* Merge ranges separated by less than a coalescing threshold. Bridging a small gap costs
+     * a few pages that are not needed but saves a separate request; this is the same tradeoff
+     * the stream path makes when it coalesces reads. */
+    const u64 COALESCE_GAP = 64 * 1024;
+    int n = 0;
+    for(int i = 1; i < count; i++) {
+        if(ranges[i * 2] <= ranges[n * 2 + 1] + COALESCE_GAP) {
+            if(ranges[i * 2 + 1] > ranges[n * 2 + 1]) {
+                ranges[n * 2 + 1] = ranges[i * 2 + 1];
+            }
+        }
+        else {
+            n++;
+            ranges[n * 2] = ranges[i * 2];
+            ranges[n * 2 + 1] = ranges[i * 2 + 1];
+        }
+    }
+    n++; /* number of merged ranges */
+
+    u64 covered = 0;
+    for(int i = 0; i < n; i++) {
+        covered += ranges[i * 2 + 1] - ranges[i * 2];
+    }
+
+#if defined(_WIN32)
+    if(mode == OAPV_INPUT_PREFETCH_OS) {
+        /* PrefetchVirtualMemory takes the whole range list in one call and issues large I/Os
+         * for it, rather than one fault per page.
+         *
+         * Declared and resolved here rather than taken from the SDK headers: it needs
+         * _WIN32_WINNT >= 0x0602, which not every build of this library sets, and resolving it
+         * at run time also lets the call degrade to the touch loop instead of failing to load
+         * on a host that lacks it. */
+        typedef struct {
+            void  *VirtualAddress;
+            size_t NumberOfBytes;
+        } oapv_mem_range_t;
+        typedef BOOL(WINAPI * prefetch_fn)(HANDLE, ULONG_PTR, void *, ULONG);
+
+        static prefetch_fn s_prefetch = NULL;
+        static int         s_resolved = 0;
+        if(!s_resolved) {
+            HMODULE k32 = GetModuleHandleA("kernel32.dll");
+            if(k32) {
+                s_prefetch = (prefetch_fn)(void *)GetProcAddress(k32, "PrefetchVirtualMemory");
+            }
+            s_resolved = 1;
+        }
+
+        if(s_prefetch) {
+            oapv_mem_range_t *entries = (oapv_mem_range_t *)malloc(sizeof(oapv_mem_range_t) * n);
+            if(entries) {
+                for(int i = 0; i < n; i++) {
+                    entries[i].VirtualAddress = (void *)(base + ranges[i * 2]);
+                    entries[i].NumberOfBytes = (size_t)(ranges[i * 2 + 1] - ranges[i * 2]);
+                }
+                BOOL ok = s_prefetch(GetCurrentProcess(), (ULONG_PTR)n, entries, 0);
+                free(entries);
+                if(ok) {
+                    return covered;
+                }
+            }
+        }
+        /* Fall through to the touch loop if the call is unavailable or fails. */
+    }
+#endif
+
+    /* Read one byte per page. Models what UE's PreloadHint() does today. */
+    const u64 PAGE = 4096;
+    for(int i = 0; i < n; i++) {
+        for(u64 off = ranges[i * 2]; off < ranges[i * 2 + 1]; off += PAGE) {
+            volatile u8 sink = base[off];
+            (void)sink;
+        }
+    }
+    return covered;
+}
+
 /* Bounds-checked big-endian 32-bit fetch from the mapping. */
 static int mem_rd32be(const u8 *base, size_t size, u64 off, u32 *out)
 {
@@ -4457,6 +4563,29 @@ int oapvd_decode_selective_multi_mips_mem(oapvd_t did, oapv_bitb_t *bitb,
         return OAPV_OK;
     }
 
+    /* Optionally fault the selected tiles' bytes in as one batched request before decoding,
+     * instead of one synchronous fault per page inside decode. Off by default. */
+    u64 prefetch_ns = 0, prefetch_bytes = 0;
+    if(multi_mip_decode->input_prefetch != OAPV_INPUT_PREFETCH_OFF) {
+        BEGIN_CPU_TRACE("Prefetch input");
+        u64 *ranges = (u64 *)oapv_ops_malloc(ctx, (unsigned int)(sizeof(u64) * 2 * work_queue_idx));
+        if(ranges) {
+            for(int i = 0; i < work_queue_idx; i++) {
+                /* Include the tile's 4-byte size prefix: it sits immediately before the
+                 * payload and the decoder does not read it here, but bridging it costs
+                 * nothing and keeps adjacent tiles in one range. */
+                ranges[i * 2] = work_queue[i].file_offset - 4;
+                ranges[i * 2 + 1] = work_queue[i].file_offset + work_queue[i].size;
+            }
+            u64 t0 = get_time_ns();
+            prefetch_bytes = mem_prefetch_ranges(au, ranges, work_queue_idx,
+                                                 multi_mip_decode->input_prefetch);
+            prefetch_ns = get_time_ns() - t0;
+            oapv_ops_free(ctx, ranges);
+        }
+        END_CPU_TRACE();
+    }
+
     int num_threads = ctx->threads;
     if(num_threads <= 0) num_threads = 1;
 
@@ -4540,6 +4669,11 @@ int oapvd_decode_selective_multi_mips_mem(oapvd_t did, oapv_bitb_t *bitb,
     double total_time_ms = (metrics.decode_end_ns - metrics.io_start_ns) / 1000000.0;
 
     log_msg(OAPV_LOG_INFO, "\nMulti-Mip Performance (mapped):\n");
+    if(multi_mip_decode->input_prefetch != OAPV_INPUT_PREFETCH_OFF) {
+        log_msg(OAPV_LOG_INFO, "  Input prefetch: mode %d, %.2f ms covering %llu bytes\n",
+                multi_mip_decode->input_prefetch, prefetch_ns / 1000000.0,
+                (unsigned long long)prefetch_bytes);
+    }
     log_msg(OAPV_LOG_INFO, "  Mips decoded: %d\n", multi_mip_decode->num_mips);
     log_msg(OAPV_LOG_INFO, "  Total tiles: %d\n", work_queue_idx);
     log_msg(OAPV_LOG_INFO, "  Setup time: %.2f ms\n", setup_time_ms);

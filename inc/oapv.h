@@ -955,10 +955,25 @@ struct oapv_mip_request {
     const int *tile_dst_slots;
 };
 
+/* Input prefetch strategy for the memory-backed entry point.
+ *
+ * Only meaningful when the input is pageable (a memory-mapped file); for memory that is
+ * already resident it costs a pointless pass and should be left OFF. The decoder knows every
+ * byte range it will read once tile offsets are resolved, so it can fault them in up front
+ * instead of taking a synchronous fault per page on whichever decode thread touches it. */
+#define OAPV_INPUT_PREFETCH_OFF   (0) /* fault lazily during decode (default) */
+#define OAPV_INPUT_PREFETCH_TOUCH (1) /* read one byte per page of the needed ranges */
+#define OAPV_INPUT_PREFETCH_OS    (2) /* ask the OS to fault the needed ranges in as a batch */
+
 typedef struct oapv_multi_mip_decode oapv_multi_mip_decode_t;
 struct oapv_multi_mip_decode {
     int                 num_mips;     /* number of entries in mip_requests */
     oapv_mip_request_t *mip_requests; /* caller-owned array of requests */
+
+    /* One of OAPV_INPUT_PREFETCH_*. Zero (OFF) for a zero-initialised struct, which
+     * preserves the previous behaviour. Honoured only by
+     * oapvd_decode_selective_multi_mips_mem(). */
+    int                 input_prefetch;
 };
 
 OAPV_EXPORT int oapvd_decode_selective_multi_mips(oapvd_t did, oapvd_istream_t *istream, oapv_multi_mip_decode_t *multi_mip_decode, oapvm_t mid, oapvd_stat_t *stat);
