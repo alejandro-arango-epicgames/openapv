@@ -31,6 +31,49 @@
 
 #include "oapv_def.h"
 
+#include <stdarg.h>
+
+static oapv_log_callback_t current_log_callback = NULL;
+static void              *current_log_user_data = NULL;
+static int                current_log_verbosity = OAPV_LOG_WARNING;
+
+/* Simple log message for trouble shooting. */
+static void log_msg(int verbosity, const char *fmt, ...)
+{
+    if(verbosity > current_log_verbosity) {
+        return;
+    }
+
+    char    str[1024] = { '\0' };
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(str, sizeof(str), fmt, args);
+    va_end(args);
+
+    if(current_log_callback != NULL) {
+        current_log_callback(str, verbosity, current_log_user_data);
+        return;
+    }
+
+    switch(verbosity) {
+    case OAPV_LOG_ERROR:
+        fprintf(stderr, "[ERROR] %s", str);
+        break;
+    case OAPV_LOG_WARNING:
+        fprintf(stderr, "[WARNING] %s", str);
+        break;
+    case OAPV_LOG_INFO:
+        printf("[INFO] %s", str);
+        break;
+    case OAPV_LOG_DEBUG:
+        printf("[DEBUG] %s", str);
+        break;
+    default:
+        printf("[UNKNOWN] %s", str);
+        break;
+    }
+}
+
 static void imgb_pad(oapv_imgb_t *imgb, int aw, int ah, int comp_sft[N_C][2])
 {
     int imgb_w = imgb->w[0];
@@ -3002,7 +3045,11 @@ static int dec_parse_mip_header(const u8 *au, const mip_location_t *location, oa
 
     /* Tile byte offsets are derived from the frame header's tile sizes, so
        their absence is a hard failure rather than a silent fallback. */
-    oapv_assert_rv(fh->tile_size_present_in_fh_flag, OAPV_ERR_UNSUPPORTED);
+    if(!fh->tile_size_present_in_fh_flag) {
+        log_msg(OAPV_LOG_ERROR, "Selective decoding requires tile sizes in the frame header "
+                                "(tile_size_present_in_fh_flag)\n");
+        return OAPV_ERR_UNSUPPORTED;
+    }
 
     int pic_w_mb = (fh->fi.frame_width + (OAPV_MB_W - 1)) >> OAPV_LOG2_MB_W;
     int pic_h_mb = (fh->fi.frame_height + (OAPV_MB_H - 1)) >> OAPV_LOG2_MB_H;
@@ -3186,6 +3233,9 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
             int col = req->tile_coords[t * 2];
             int row = req->tile_coords[t * 2 + 1];
             if(col < 0 || col >= ctx->num_tile_cols || row < 0 || row >= ctx->num_tile_rows) {
+                log_msg(OAPV_LOG_ERROR, "Invalid tile coordinates (%d,%d) for mip %d "
+                                        "(valid range 0-%d, 0-%d)\n",
+                        col, row, req->mip_level, ctx->num_tile_cols - 1, ctx->num_tile_rows - 1);
                 invalid = 1;
                 break;
             }
@@ -3330,4 +3380,15 @@ const char *oapv_version(unsigned int *ver_num)
         *ver_num = OAPV_VER_NUM;
 
     return (char*)oapv_version_string;
+}
+
+void oapv_set_logging_callback(oapv_log_callback_t callback, void *user_data)
+{
+    current_log_callback = callback;
+    current_log_user_data = user_data;
+}
+
+void oapv_set_logging_verbosity(int verbosity)
+{
+    current_log_verbosity = verbosity;
 }
