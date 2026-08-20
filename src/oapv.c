@@ -2660,13 +2660,24 @@ typedef struct {
     oapv_fn_blk_to_pic_t fn_blk_to_pic[N_C];
 } mip_context_t;
 
+/* Outcome of one work item. Private to this path: it has nothing to do with the
+   flag-based status on oapvd_tile_t, which describes a whole-frame decode. */
+typedef enum {
+    MIP_TILE_WORK_PENDING = 0,
+    MIP_TILE_WORK_DONE,
+    MIP_TILE_WORK_ERROR,
+} mip_tile_work_stat_t;
+
 /* One requested tile. 'data' points straight into the caller's access unit;
    nothing is copied before decoding. */
 typedef struct {
-    int                  col, row;
+    int                  col;     /* tile column in the mip's grid */
+    int                  row;     /* tile row in the mip's grid */
     u32                  size;    /* tile payload size, excluding the 4-byte prefix */
     const u8            *data;    /* start of the tile payload */
-    volatile int         status;  /* DEC_TILE_STAT_* work-item state */
+
+    /* Written by whichever worker claims this item, read after the join. */
+    volatile mip_tile_work_stat_t status;
 
     /* Per-tile destination slot override. >= 0 means "write this tile at
        dst_slot * tile_size" in tiled output (caller-virtualized routing);
@@ -2734,13 +2745,13 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
 
         int num_comp = get_num_comp(mip_ctx->chroma_format_idc);
         if(mip_ctx->num_comp != num_comp) {
-            work->status = DEC_TILE_STAT_ERROR;
+            work->status = MIP_TILE_WORK_ERROR;
             continue;
         }
 
         ret = oapvd_vlc_tile_header(&tile_bs, local_ctx.num_c, &tile.th, work->size, local_ctx.bit_depth);
         if(OAPV_FAILED(ret)) {
-            work->status = DEC_TILE_STAT_ERROR;
+            work->status = MIP_TILE_WORK_ERROR;
             continue;
         }
 
@@ -2827,10 +2838,10 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
         }
 
         if(OAPV_SUCCEEDED(ret)) {
-            work->status = DEC_TILE_STAT_DECODED;
+            work->status = MIP_TILE_WORK_DONE;
         }
         else {
-            work->status = DEC_TILE_STAT_ERROR;
+            work->status = MIP_TILE_WORK_ERROR;
         }
     }
 
@@ -3164,7 +3175,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
                4-byte size field. The bytes are already addressable, so the
                work item points straight at them: no copy, no I/O handshake. */
             work->data = au + locations[m].pbu_pos + (u32)pos_tiles[tile_idx].offset + OAPV_TILE_SIZE_LEN;
-            work->status = DEC_TILE_STAT_NOT_DECODED;
+            work->status = MIP_TILE_WORK_PENDING;
 
             bytes_referenced += work->size;
         }
@@ -3245,7 +3256,7 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
         /* A tile that failed to decode marks its mip's request, so the caller
            can tell a partially decoded level from a clean one. */
         for(int i = 0; i < work_queue_idx; i++) {
-            if(work_queue[i].status == DEC_TILE_STAT_ERROR) {
+            if(work_queue[i].status == MIP_TILE_WORK_ERROR) {
                 for(int m = 0; m < num_mips; m++) {
                     if(work_queue[i].mip_ctx == &mip_contexts[m]) {
                         multi_mip_decode->mip_requests[m].status = OAPV_ERR_MALFORMED_BITSTREAM;

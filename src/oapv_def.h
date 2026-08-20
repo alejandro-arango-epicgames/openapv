@@ -367,12 +367,6 @@ struct oapve_ctx {
 #define DEC_TILE_STAT_IS_ON(stat)     ((stat) & DEC_TILE_STAT_FLAG_ON)
 #define DEC_TILE_STAT_IS_DONE(stat)   ((stat) & DEC_TILE_STAT_FLAG_DONE)
 
-/* Work-item states for the selective (multi-mip) decode path. These live on
-   the private tile_work_t queue, not on oapvd_tile_t, and are independent of
-   the flag-based tile status above. */
-#define DEC_TILE_STAT_NOT_DECODED 0 /* ready to decode */
-#define DEC_TILE_STAT_DECODED     2
-#define DEC_TILE_STAT_ERROR       3
 
 typedef struct oapvd_tile oapvd_tile_t;
 struct oapvd_tile {
