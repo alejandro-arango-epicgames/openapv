@@ -944,6 +944,11 @@ struct oapv_mip_request {
     const int *tile_dst_slots;
 };
 
+/* The set of mip levels to decode in one call.
+ *
+ * Every request is served from a single pass over the access unit, and their tiles
+ * share one thread pool, so a level with few tiles does not leave workers idle.
+ * Each request reports its own outcome in 'status'; see oapv_mip_request_t. */
 typedef struct oapv_multi_mip_decode oapv_multi_mip_decode_t;
 struct oapv_multi_mip_decode {
     int                 num_mips;     /* number of entries in mip_requests */

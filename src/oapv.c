@@ -2663,17 +2663,17 @@ int oapvd_decode_metadata(oapvd_t did, oapv_bitb_t *bitb, oapvm_payload_t *pld)
 /* Frame-level state shared by every tile of one mip. Held once per mip and
    pointed at by each work item, rather than copied per tile. */
 typedef struct {
-    int          mip_level;
-    int          bit_depth;
+    int          mip_level;          /* which frame of the access unit this describes */
+    int          bit_depth;          /* from this mip's frame header, not the shared context */
     int          chroma_format_idc;
-    int          frame_width;  /* as signalled, not macroblock-aligned */
-    int          frame_height;
-    u8           q_matrix[N_C][OAPV_BLK_H][OAPV_BLK_W];
-    oapv_imgb_t *output_buffer;
-    int          tile_width_in_mbs;
+    int          frame_width;        /* as signalled, not macroblock-aligned */
+    int          frame_height;       /* as signalled, not macroblock-aligned */
+    u8           q_matrix[N_C][OAPV_BLK_H][OAPV_BLK_W]; /* dequant matrix for this mip */
+    oapv_imgb_t *output_buffer;      /* caller's destination for this mip */
+    int          tile_width_in_mbs;  /* tile geometry, used to place a tile in the frame */
     int          tile_height_in_mbs;
-    int          num_comp;
-    int          comp_sft[N_C][2];
+    int          num_comp;           /* components to decode, derived from chroma_format_idc */
+    int          comp_sft[N_C][2];   /* per-component chroma shift, [0]=width [1]=height */
     /* Captured per mip: mips in one call can differ in profile and colour
        format, so the block writer cannot be read off the shared context. */
     oapv_fn_blk_to_pic_t fn_blk_to_pic[N_C];
@@ -2707,12 +2707,15 @@ typedef struct {
     const mip_context_t *mip_ctx; /* read-only, shared by this mip's tiles */
 } tile_work_t;
 
+/* One worker's view of the shared decode. Every field except 'core' is identical
+   across the workers of a call; each gets its own core because a core carries the
+   coefficient, prev_dc and q_mat scratch a decode mutates. */
 typedef struct {
-    oapvd_ctx_t    *ctx;
-    oapvd_core_t   *core;
-    tile_work_t    *work_queue;
-    int             num_tiles;
-    oapv_sync_obj_t sync_obj;
+    oapvd_ctx_t    *ctx;           /* read-only here; workers copy what they mutate */
+    oapvd_core_t   *core;          /* this worker's own core, never shared */
+    tile_work_t    *work_queue;    /* shared queue, claimed through next_tile_idx */
+    int             num_tiles;     /* entries in work_queue */
+    oapv_sync_obj_t sync_obj;      /* guards the hand-out counter */
     volatile int   *next_tile_idx; /* atomic hand-out counter for work items */
 } multi_mip_worker_t;
 
@@ -2874,10 +2877,19 @@ typedef struct {
     int found;
 } mip_location_t;
 
+/* Reads the big-endian u(32) that APV uses for its length fields. */
 static u32 mem_rd32be(const u8 *p)
 {
     return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | (u32)p[3];
 }
+
+/* Two distinct 4-byte quantities sit at the front of an access unit and of every
+   PBU in it, and confusing them is easy: the access unit opens with a 4-byte
+   signature, and each PBU is preceded by its own u(32) size field that pbu_size
+   itself does not count. Neither is OAPV_PBU_HEADER_BYTE, which is the 4-byte PBU
+   header that follows the size field. */
+#define AU_SIGNATURE_BYTES   4
+#define PBU_SIZE_FIELD_BYTES 4
 
 /* Walks the access unit's PBU chain and records where each requested mip's
    frame PBU begins. Mip N is the Nth frame PBU: mip 0 is the primary frame,
@@ -2896,16 +2908,17 @@ static int dec_locate_mips(const u8 *au, size_t au_size, const int *requested_mi
         }
     }
 
-    u64 pos = 4; /* past the signature */
+    u64 pos = AU_SIGNATURE_BYTES;
     int frame_ord = 0;
     int found_count = 0;
 
     /* With no metadata container the walk only has to reach the requested mips,
        so it stops at the last one it needs. Collecting metadata means running to
        the end of the access unit, because metadata is written after the frames. */
-    while(pos + 4 <= (u64)au_size && (mid != NULL || frame_ord <= max_mip)) {
+    while(pos + PBU_SIZE_FIELD_BYTES <= (u64)au_size && (mid != NULL || frame_ord <= max_mip)) {
         u32 pbu_size = mem_rd32be(au + pos);
-        if(pbu_size < OAPV_PBU_HEADER_BYTE || pos + 4 + (u64)pbu_size > (u64)au_size) {
+        if(pbu_size < OAPV_PBU_HEADER_BYTE ||
+           pos + PBU_SIZE_FIELD_BYTES + (u64)pbu_size > (u64)au_size) {
             return OAPV_ERR_MALFORMED_BITSTREAM;
         }
 
@@ -2913,7 +2926,7 @@ static int dec_locate_mips(const u8 *au, size_t au_size, const int *requested_mi
         oapv_pbuh_t pbuh;
         /* oapvd_vlc_metadata() reads the payloads that follow the header, so the
            reader has to span the whole PBU whenever metadata is being collected. */
-        oapv_bsr_init(&bs, (u8 *)(au + pos + 4),
+        oapv_bsr_init(&bs, (u8 *)(au + pos + PBU_SIZE_FIELD_BYTES),
                       (mid != NULL) ? pbu_size : OAPV_PBU_HEADER_BYTE, NULL);
 
         int ret = oapvd_vlc_pbu_header(&bs, &pbuh);
@@ -2922,7 +2935,7 @@ static int dec_locate_mips(const u8 *au, size_t au_size, const int *requested_mi
         if(OAPV_PBU_TYPE_IS_FRAME(pbuh.pbu_type)) {
             for(int i = 0; i < num_mips; i++) {
                 if(requested_mips[i] == frame_ord && !locations[i].found) {
-                    locations[i].pbu_pos = pos + 4;
+                    locations[i].pbu_pos = pos + PBU_SIZE_FIELD_BYTES;
                     locations[i].pbu_size = pbu_size;
                     locations[i].found = 1;
                     found_count++;
@@ -2938,7 +2951,7 @@ static int dec_locate_mips(const u8 *au, size_t au_size, const int *requested_mi
             oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
         }
 
-        pos += 4 + (u64)pbu_size;
+        pos += PBU_SIZE_FIELD_BYTES + (u64)pbu_size;
     }
 
     return OAPV_OK;
