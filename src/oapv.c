@@ -2683,7 +2683,6 @@ typedef struct {
     tile_work_t    *work_queue;
     int             num_tiles;
     oapv_sync_obj_t sync_obj;
-    volatile int   *tiles_completed;
     volatile int   *next_tile_idx; /* atomic hand-out counter for work items */
 } multi_mip_worker_t;
 
@@ -2829,7 +2828,6 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
 
         if(OAPV_SUCCEEDED(ret)) {
             work->status = DEC_TILE_STAT_DECODED;
-            oapv_tpool_atomic_inc(worker->sync_obj, worker->tiles_completed);
         }
         else {
             work->status = DEC_TILE_STAT_ERROR;
@@ -3192,7 +3190,6 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
             goto DONE;
         }
 
-        volatile int tiles_completed = 0;
         volatile int next_tile_idx = 0;
 
         multi_mip_worker_t worker;
@@ -3201,7 +3198,6 @@ int oapvd_decode_selective_multi_mips(oapvd_t did, oapv_bitb_t *bitb,
         worker.work_queue = work_queue;
         worker.num_tiles = work_queue_idx;
         worker.sync_obj = sync_obj;
-        worker.tiles_completed = &tiles_completed;
         worker.next_tile_idx = &next_tile_idx;
 
         /* One fewer worker than num_threads: the main thread decodes too, using
