@@ -1594,34 +1594,6 @@ static int dec_set_tile_info(oapvd_tile_t* tile, int w_pel, int h_pel, int tile_
     return OAPV_OK;
 }
 
-/* Grows ctx->tile to hold at least 'num_tiles' entries. The array is reused
-   across frames, so it only ever grows. */
-static int dec_ensure_tile_capacity(oapvd_ctx_t *ctx, int num_tiles)
-{
-    if(num_tiles <= ctx->tile_cap) {
-        return OAPV_OK;
-    }
-
-    // the allocator takes a 32-bit size, so reject a request that would not
-    // survive the conversion instead of letting it truncate: the oapv_mset
-    // below writes the full, untruncated size
-    s64 tile_bytes = (s64)sizeof(oapvd_tile_t) * num_tiles;
-    oapv_assert_rv(tile_bytes <= (s64)UINT_MAX, OAPV_ERR_MALFORMED_BITSTREAM);
-
-    oapv_ops_free(ctx, ctx->tile);
-    // clear both, so a failed allocation cannot leave a stale capacity
-    // beside a pointer that is no longer valid
-    ctx->tile = NULL;
-    ctx->tile_cap = 0;
-
-    ctx->tile = (oapvd_tile_t *)oapv_ops_malloc(ctx, (unsigned int)tile_bytes);
-    oapv_assert_rv(ctx->tile != NULL, OAPV_ERR_OUT_OF_MEMORY);
-    oapv_mset(ctx->tile, 0, (size_t)tile_bytes);
-    ctx->tile_cap = num_tiles;
-
-    return OAPV_OK;
-}
-
 static int dec_frm_prepare(oapvd_ctx_t *ctx, int num_part_tiles, const int *part_tile_idxs, oapv_imgb_t *imgb)
 {
     int i, ret;
@@ -1718,8 +1690,24 @@ static int dec_frm_prepare(oapvd_ctx_t *ctx, int num_part_tiles, const int *part
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
     // allocate tile array to fit this frame's tile partitioning
-    ret = dec_ensure_tile_capacity(ctx, ctx->num_tiles);
-    oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
+    if(ctx->num_tiles > ctx->tile_cap) {
+        // the allocator takes a 32-bit size, so reject a request that would not
+        // survive the conversion instead of letting it truncate: the oapv_mset
+        // below writes the full, untruncated size
+        s64 tile_bytes = (s64)sizeof(oapvd_tile_t) * ctx->num_tiles;
+        oapv_assert_rv(tile_bytes <= (s64)UINT_MAX, OAPV_ERR_MALFORMED_BITSTREAM);
+
+        oapv_ops_free(ctx, ctx->tile);
+        // clear both, so a failed allocation cannot leave a stale capacity
+        // beside a pointer that is no longer valid
+        ctx->tile = NULL;
+        ctx->tile_cap = 0;
+
+        ctx->tile = (oapvd_tile_t *)oapv_ops_malloc(ctx, (unsigned int)tile_bytes);
+        oapv_assert_rv(ctx->tile != NULL, OAPV_ERR_OUT_OF_MEMORY);
+        oapv_mset(ctx->tile, 0, (size_t)tile_bytes);
+        ctx->tile_cap = ctx->num_tiles;
+    }
 
     dec_set_tile_info(ctx->tile, ctx->w, ctx->h, tile_w, tile_h, ctx->num_tile_cols, ctx->num_tiles);
 
@@ -1807,14 +1795,10 @@ static int dec_frm_prepare_selective(oapvd_ctx_t *ctx, const oapv_imgb_t *imgb_d
     ret = oapv_validate_tile_topology(ctx->fh.fi.profile_idc, ctx->num_tile_cols, ctx->num_tile_rows, &ctx->num_tiles);
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
-    ret = dec_ensure_tile_capacity(ctx, ctx->num_tiles);
-    oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
-
-    dec_set_tile_info(ctx->tile, ctx->w, ctx->h, tile_w, tile_h, ctx->num_tile_cols, ctx->num_tiles);
-
-    for(i = 0; i < ctx->num_tiles; i++) {
-        ctx->tile[i].bs_beg = NULL;
-    }
+    /* ctx->tile is deliberately left alone. It describes a whole-frame decode and is
+       only read by dec_thread_tile(); the selective path builds a per-tile descriptor
+       in the worker instead. Sizing it here would cost an allocation and two passes
+       over the frame's tile count - 2040 of them at 16K - for something nothing reads. */
 
     return OAPV_OK;
 }
