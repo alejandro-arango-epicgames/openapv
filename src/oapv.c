@@ -2422,6 +2422,32 @@ ERR:
     return ret;
 }
 
+/* Turns the per-tile sizes the frame header carried into per-tile byte offsets.
+ *
+ * Tile data follows the frame header, each unit being a 4-byte size field then
+ * that many bytes of data, so the offsets are a running sum and no tile has to be
+ * visited to find the next one. 'first_tile_off' is where the first unit starts,
+ * measured from the beginning of the PBU - that is, the bytes the frame header
+ * consumed. Each reported offset addresses the size field, so a decoder wanting
+ * the payload adds OAPV_TILE_SIZE_LEN.
+ *
+ * 'pos_tiles[i].size' must already be filled in; only 'offset' is written.
+ */
+static int dec_derive_tile_offsets(oapv_tile_pos_t *pos_tiles, int num_tiles,
+                                   s64 first_tile_off, s64 pbu_size)
+{
+    s64 off = first_tile_off;
+    for(int i = 0; i < num_tiles; i++) {
+        off += OAPV_TILE_SIZE_LEN + pos_tiles[i].size;
+        // the tile must lie within the PBU
+        if(off > pbu_size) {
+            return OAPV_ERR_MALFORMED_BITSTREAM;
+        }
+        pos_tiles[i].offset = (int)(off - OAPV_TILE_SIZE_LEN - pos_tiles[i].size);
+    }
+    return OAPV_OK;
+}
+
 int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, int *num_tiles)
 {
     oapv_bs_t    bs;
@@ -2498,15 +2524,8 @@ int oapvd_info_tile(void *pbu, int pbu_size, oapv_tile_pos_t *pos_tiles, int *nu
         }
     }
     if(fh.tile_size_present_in_fh_flag) {
-        // tile data follows the frame header; each tile unit is a 4-byte size
-        // field plus the tile data of the size reported above
-        s64 off = BSR_GET_READ_BYTE(&bs);
-        for(i = 0; i < n; i++) {
-            off += OAPV_TILE_SIZE_LEN + pos_tiles[i].size;
-            // the tile must lie within the PBU
-            oapv_assert_gv(off <= (s64)pbu_size, ret, OAPV_ERR_MALFORMED_BITSTREAM, ERR);
-            pos_tiles[i].offset = (int)(off - OAPV_TILE_SIZE_LEN - pos_tiles[i].size);
-        }
+        ret = dec_derive_tile_offsets(pos_tiles, n, BSR_GET_READ_BYTE(&bs), (s64)pbu_size);
+        oapv_assert_g(OAPV_SUCCEEDED(ret), ERR);
     }
     *num_tiles = n;
 
@@ -2979,14 +2998,8 @@ static int dec_parse_mip_header(const u8 *au, const mip_location_t *location, oa
         return OAPV_ERR_REACHED_MAX;
     }
 
-    /* Tile data follows the frame header; each tile unit is a 4-byte size
-       field plus that many bytes of tile data. */
-    s64 off = BSR_GET_READ_BYTE(&bs);
-    for(int i = 0; i < n; i++) {
-        off += OAPV_TILE_SIZE_LEN + pos_tiles[i].size;
-        oapv_assert_rv(off <= (s64)location->pbu_size, OAPV_ERR_MALFORMED_BITSTREAM);
-        pos_tiles[i].offset = (int)(off - OAPV_TILE_SIZE_LEN - pos_tiles[i].size);
-    }
+    ret = dec_derive_tile_offsets(pos_tiles, n, BSR_GET_READ_BYTE(&bs), (s64)location->pbu_size);
+    oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
     *num_tiles = n;
     return OAPV_OK;
