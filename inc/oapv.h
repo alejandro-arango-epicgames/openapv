@@ -398,6 +398,10 @@ struct oapv_imgb {
      * and the decoder writes pixels at tile-local coordinates using
      * `tile_stride[c]` as the per-row byte advance.
      *
+     * Each component is described separately, so the layout is planar: it cannot
+     * express two components sharing a plane on alternating samples. Interleaved
+     * chroma colour spaces are rejected rather than mis-written.
+     *
      * Zero-initialised structs continue to use the scanline path. */
     int           tiled_layout;
     int           num_tile_cols;            /* number of tile columns in the picture */
@@ -405,7 +409,7 @@ struct oapv_imgb {
     int           tile_size;                /* total bytes per tile (sum of plane sub-tiles, incl. padding) */
     int           tile_w[OAPV_MAX_CC];      /* tile width  per component, in samples */
     int           tile_h[OAPV_MAX_CC];      /* tile height per component, in samples */
-    int           tile_stride[OAPV_MAX_CC]; /* tile row stride in bytes (= tile_w[c] * bytes_per_sample) */
+    int           tile_stride[OAPV_MAX_CC]; /* tile row stride in bytes; >= tile_w[c] * bytes_per_sample */
 };
 
 typedef struct oapv_frm oapv_frm_t;

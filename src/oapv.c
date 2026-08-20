@@ -1750,6 +1750,24 @@ static int dec_frm_prepare_selective(oapvd_ctx_t *ctx, const oapv_imgb_t *imgb_d
 
     oapv_assert_rv(imgb_desc != NULL, OAPV_ERR_INVALID_ARGUMENT);
 
+    /* Interleaved chroma is not supported here. A tile's destination is described
+       per component - tile_w[c], tile_h[c], tile_stride[c], and a[c] biased to the
+       component's intra-tile offset - which cannot express two components sharing
+       a plane on alternating samples. Reject it rather than write V into a plane a
+       P210 buffer does not have. */
+    if(OAPV_CS_GET_FORMAT(imgb_desc->cs) == OAPV_CF_PLANAR2) {
+        return OAPV_ERR_UNSUPPORTED_COLORSPACE;
+    }
+
+    /* The component shifts below come from the output buffer's colour space while
+       the component count comes from the bitstream, so the two have to agree. This
+       is the same guard dec_frm_prepare() applies; without it a 4:2:0 buffer handed
+       a 4:4:4 stream writes chroma at half the correct coordinates and reports
+       success. */
+    if(color_format_to_chroma_format_idc(OAPV_CS_GET_FORMAT(imgb_desc->cs)) != ctx->fh.fi.chroma_format_idc) {
+        return OAPV_ERR_INVALID_ARGUMENT;
+    }
+
     ctx->bit_depth = ctx->fh.fi.bit_depth;
     ctx->cfi = ctx->fh.fi.chroma_format_idc;
     ctx->num_c = get_num_comp(ctx->cfi);
@@ -1769,12 +1787,7 @@ static int dec_frm_prepare_selective(oapvd_ctx_t *ctx, const oapv_imgb_t *imgb_d
         ctx->disable_companding = ctx->force_disable_companding;
     }
 
-    if(OAPV_CS_GET_FORMAT(imgb_desc->cs) == OAPV_CF_PLANAR2) {
-        ctx->fn_blk_to_pic[Y_C] = oapv_blk_to_pic_p21x_y;
-        ctx->fn_blk_to_pic[U_C] = oapv_blk_to_pic_p21x_uv;
-        ctx->fn_blk_to_pic[V_C] = oapv_blk_to_pic_p21x_uv;
-    }
-    else if(ctx->fh.fi.profile_idc == OAPV_PROFILE_444_16C12 || ctx->fh.fi.profile_idc == OAPV_PROFILE_4444_16C12) {
+    if(ctx->fh.fi.profile_idc == OAPV_PROFILE_444_16C12 || ctx->fh.fi.profile_idc == OAPV_PROFILE_4444_16C12) {
         for(i = 0; i < ctx->num_c; i++) {
             ctx->fn_blk_to_pic[i] = ctx->disable_companding ? oapv_blk_to_pic_16 : oapv_blk_to_pic_12E16;
         }
@@ -2765,11 +2778,7 @@ static int dec_thread_tile_selective_multi_mip(void *arg)
         oapv_mcpy(local_ctx.c_sft, mip_ctx->comp_sft, sizeof(local_ctx.c_sft));
         oapv_mcpy(local_ctx.fn_blk_to_pic, mip_ctx->fn_blk_to_pic, sizeof(local_ctx.fn_blk_to_pic));
 
-        int num_comp = get_num_comp(mip_ctx->chroma_format_idc);
-        if(mip_ctx->num_comp != num_comp) {
-            work->status = MIP_TILE_WORK_ERROR;
-            continue;
-        }
+        const int num_comp = mip_ctx->num_comp;
 
         ret = oapvd_vlc_tile_header(&tile_bs, local_ctx.num_c, &tile.th, work->size, local_ctx.bit_depth);
         if(OAPV_FAILED(ret)) {
