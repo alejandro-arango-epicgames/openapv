@@ -31,6 +31,49 @@
 
 #include "oapv_def.h"
 
+#include <stdarg.h>
+
+static oapv_log_callback_t current_log_callback = NULL;
+static void              *current_log_user_data = NULL;
+static int                current_log_verbosity = OAPV_LOG_WARNING;
+
+/* Simple log message for trouble shooting. */
+static void log_msg(int verbosity, const char *fmt, ...)
+{
+    if(verbosity > current_log_verbosity) {
+        return;
+    }
+
+    char    str[1024] = { '\0' };
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(str, sizeof(str), fmt, args);
+    va_end(args);
+
+    if(current_log_callback != NULL) {
+        current_log_callback(str, verbosity, current_log_user_data);
+        return;
+    }
+
+    switch(verbosity) {
+    case OAPV_LOG_ERROR:
+        fprintf(stderr, "[ERROR] %s", str);
+        break;
+    case OAPV_LOG_WARNING:
+        fprintf(stderr, "[WARNING] %s", str);
+        break;
+    case OAPV_LOG_INFO:
+        printf("[INFO] %s", str);
+        break;
+    case OAPV_LOG_DEBUG:
+        printf("[DEBUG] %s", str);
+        break;
+    default:
+        printf("[UNKNOWN] %s", str);
+        break;
+    }
+}
+
 static void imgb_pad(oapv_imgb_t *imgb, int aw, int ah, int comp_sft[N_C][2])
 {
     int imgb_w = imgb->w[0];
@@ -2981,4 +3024,15 @@ const char *oapv_version(unsigned int *ver_num)
         *ver_num = OAPV_VER_NUM;
 
     return oapv_version_string;
+}
+
+void oapv_set_logging_callback(oapv_log_callback_t callback, void *user_data)
+{
+    current_log_callback = callback;
+    current_log_user_data = user_data;
+}
+
+void oapv_set_logging_verbosity(int verbosity)
+{
+    current_log_verbosity = verbosity;
 }
