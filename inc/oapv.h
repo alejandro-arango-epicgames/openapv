@@ -900,6 +900,23 @@ struct oapv_tile_req {
 OAPV_EXPORT int oapvd_decode_tiles(oapvd_t did, oapv_bitb_t *bitb, int num_tiles, oapv_tile_req_t *tile_reqs);
 
 
+/*****************************************************************************
+ * logging
+ *
+ * Verbosity defaults to OAPV_LOG_WARNING. Setting a callback redirects log
+ * output to it; otherwise messages go to stdout/stderr. Not safe to change
+ * while codec instances are in use.
+ *****************************************************************************/
+#define OAPV_LOG_ERROR                  0
+#define OAPV_LOG_WARNING                1
+#define OAPV_LOG_INFO                   2
+#define OAPV_LOG_DEBUG                  3
+
+typedef void (*oapv_log_callback_t)(const char *message, int verbosity, void *userdata);
+
+OAPV_EXPORT void oapv_set_logging_callback(oapv_log_callback_t callback, void *userdata);
+OAPV_EXPORT void oapv_set_logging_verbosity(int verbosity);
+
 
 #ifdef __cplusplus
 } /* extern "C" */
