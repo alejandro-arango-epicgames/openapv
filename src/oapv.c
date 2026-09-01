@@ -37,6 +37,18 @@ static oapv_log_callback_t current_log_callback = NULL;
 static void              *current_log_user_data = NULL;
 static int                current_log_verbosity = OAPV_LOG_WARNING;
 
+static oapv_cputrace_callbacks_t cputrace_callbacks = { NULL, NULL };
+
+#define BEGIN_CPU_TRACE(name)                                     \
+    if(cputrace_callbacks.begin_event) {                          \
+        cputrace_callbacks.begin_event(name, __FILE__, __LINE__); \
+    }
+
+#define END_CPU_TRACE()                 \
+    if(cputrace_callbacks.end_event) {  \
+        cputrace_callbacks.end_event(); \
+    }
+
 /* Simple log message for trouble shooting. */
 static void log_msg(int verbosity, const char *fmt, ...)
 {
@@ -2176,7 +2188,9 @@ static int dec_thread_tile_sel(void *arg)
             break; // end of worker thread
         }
 
+        BEGIN_CPU_TRACE("DecodeTile");
         ret = dec_tile(core, &tile[tidx]);
+        END_CPU_TRACE();
         if(OAPV_FAILED(ret)) {
             thread_ret = ret;
         }
@@ -2798,24 +2812,19 @@ ERR:
     return OAPV_OK;
 }
 
-int oapvd_decode_tiles(oapvd_t did, oapv_bitb_t *bitb, int num_tiles, oapv_tile_req_t *tile_reqs)
+/* everything oapvd_decode_tiles() does before any tile is read: the PBU and
+   frame headers, the destination checks and the tile offsets. A selective
+   decode pays this once per call whatever it asks for, so it is carried in its
+   own function, both to give the profiler a scope that cannot straddle the
+   tile decode and so that the error exits cannot leave that scope unbalanced. */
+static int dec_tiles_setup(oapvd_ctx_t *ctx, oapv_bitb_t *bitb, int num_tiles, oapv_tile_req_t *tile_reqs)
 {
-    oapvd_ctx_t     *ctx;
     oapv_pbuh_t      pbuh;
     oapv_tile_pos_t *pos_tiles = NULL;
     u8              *fh_beg;
     int              pos_tiles_cap;
     int              ret = OAPV_OK;
 
-    ctx = dec_id_to_ctx(did);
-    oapv_assert_rv(ctx, OAPV_ERR_INVALID_ARGUMENT);
-    oapv_assert_rv(bitb != NULL && bitb->addr != NULL, OAPV_ERR_INVALID_ARGUMENT);
-    oapv_assert_rv(num_tiles > 0 && tile_reqs != NULL, OAPV_ERR_INVALID_ARGUMENT);
-
-    oapv_assert_rv(bitb->ssize >= 8, OAPV_ERR_MALFORMED_BITSTREAM);
-    if(bitb->bsize > 0) {
-        oapv_assert_rv(bitb->ssize <= bitb->bsize, OAPV_ERR_INVALID_ARGUMENT);
-    }
     oapv_bsr_init(&ctx->bs, (u8 *)bitb->addr, bitb->ssize, NULL);
 
     // parse PBU header
@@ -2851,12 +2860,35 @@ int oapvd_decode_tiles(oapvd_t did, oapv_bitb_t *bitb, int num_tiles, oapv_tile_
     }
 
     ret = dec_derive_tile_offsets(ctx, pos_tiles);
+    return ret;
+}
+
+int oapvd_decode_tiles(oapvd_t did, oapv_bitb_t *bitb, int num_tiles, oapv_tile_req_t *tile_reqs)
+{
+    oapvd_ctx_t *ctx;
+    int          ret;
+
+    ctx = dec_id_to_ctx(did);
+    oapv_assert_rv(ctx, OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv(bitb != NULL && bitb->addr != NULL, OAPV_ERR_INVALID_ARGUMENT);
+    oapv_assert_rv(num_tiles > 0 && tile_reqs != NULL, OAPV_ERR_INVALID_ARGUMENT);
+
+    oapv_assert_rv(bitb->ssize >= 8, OAPV_ERR_MALFORMED_BITSTREAM);
+    if(bitb->bsize > 0) {
+        oapv_assert_rv(bitb->ssize <= bitb->bsize, OAPV_ERR_INVALID_ARGUMENT);
+    }
+
+    BEGIN_CPU_TRACE("DecodeTilesSetup");
+    ret = dec_tiles_setup(ctx, bitb, num_tiles, tile_reqs);
+    END_CPU_TRACE();
     oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
     int           thread_ret;
     oapv_tpool_t *tpool = ctx->tpool;
     int           parallel_task = (ctx->threads > num_tiles) ? num_tiles : ctx->threads;
     int           tidx = 0;
+
+    BEGIN_CPU_TRACE("DecodeTiles");
 
     /* decode tiles ************************************/
     for(tidx = 0; tidx < (parallel_task - 1); tidx++) {
@@ -2871,6 +2903,8 @@ int oapvd_decode_tiles(oapvd_t did, oapv_bitb_t *bitb, int num_tiles, oapv_tile_
         }
     }
     /****************************************************/
+
+    END_CPU_TRACE(); /* DecodeTiles */
 
     return ret;
 }
@@ -2931,4 +2965,22 @@ void oapv_set_logging_callback(oapv_log_callback_t callback, void *user_data)
 void oapv_set_logging_verbosity(int verbosity)
 {
     current_log_verbosity = verbosity;
+}
+
+/* See oapv.h for the usage contract (NULL resets to defaults; not safe to call
+   while codec instances are live). */
+int oapv_set_cputrace_callbacks(const oapv_cputrace_callbacks_t *callbacks)
+{
+    // Passing NULL resets to the default (no-op) trace callbacks.
+    if(callbacks == NULL) {
+        oapv_cputrace_callbacks_t defaults = { NULL, NULL };
+        cputrace_callbacks = defaults;
+        return OAPV_OK;
+    }
+    // Both callbacks must be provided, so the macros never test one and call the other.
+    if(callbacks->begin_event && callbacks->end_event) {
+        cputrace_callbacks = *callbacks;
+        return OAPV_OK;
+    }
+    return OAPV_ERR_INVALID_ARGUMENT;
 }
