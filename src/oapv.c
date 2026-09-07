@@ -1659,6 +1659,7 @@ static oapvd_core_t *dec_core_alloc(oapvd_ctx_t *ctx)
 
 static void dec_core_free(oapvd_ctx_t *ctx, oapvd_core_t *core)
 {
+    oapv_ops_free(ctx, core->stage);
     oapv_ops_free(ctx, core);
 }
 
@@ -1911,6 +1912,69 @@ static int dec_tile_comp(oapvd_tile_t *tile, oapvd_ctx_t *ctx, oapvd_core_t *cor
     return OAPV_OK;
 }
 
+/* Decode one component of a tile through a packed staging buffer, then copy it to the
+   caller's destination in one block.
+
+   The block loop writes 8 samples at a time and jumps a row stride between block rows.
+   Straight into a caller buffer that is ordinary memory that is fine, but a destination
+   such as a mapped GPU upload buffer is write-combined, where those scattered partial
+   line writes cost several times the decode itself. Staging turns them into one
+   sequential copy; in tile-major layout the destination stride equals the row width, so
+   the whole component is a single memcpy.
+
+   Off unless the caller set oapvd_cdesc_t::stage_tile_output, since it only pays on a
+   write-combined destination and costs a copy everywhere else.
+
+   Falls back to writing straight to the destination when staging is not possible or not
+   worthwhile, so this is only ever a performance path:
+     - PLANAR2 interleaves two components in one plane, so a per-component copy would
+       clobber the other component; leave those to the direct path,
+     - and if the staging buffer cannot be allocated, keep decoding rather than fail. */
+static int dec_tile_comp_staged(oapvd_tile_t *tile, oapvd_ctx_t *ctx, oapvd_core_t *core,
+                                oapv_bs_t *bsc, int c, int pic_s, void *pic)
+{
+    int byte_depth = (ctx->bit_depth + 7) / 8;
+    int h_c = tile->h >> ctx->c_sft[c][1];
+    int w_c = tile->w >> ctx->c_sft[c][0];
+    s64 need = (s64)w_c * byte_depth * h_c;
+    int ret;
+
+    if(core->stage_failed || h_c <= 0 || w_c <= 0 || need > (s64)INT_MAX) {
+        return dec_tile_comp(tile, ctx, core, bsc, c, pic_s, pic, 1);
+    }
+
+    if((int)need > core->stage_size) {
+        oapv_ops_free(ctx, core->stage);
+        core->stage = (u8 *)oapv_ops_malloc(ctx, (unsigned int)need);
+        if(core->stage == NULL) {
+            // one failure is enough; stop asking and take the direct path from here on
+            core->stage_size = 0;
+            core->stage_failed = 1;
+            return dec_tile_comp(tile, ctx, core, bsc, c, pic_s, pic, 1);
+        }
+        core->stage_size = (int)need;
+    }
+
+    int row_bytes = w_c * byte_depth;
+
+    ret = dec_tile_comp(tile, ctx, core, bsc, c, row_bytes, core->stage, 1);
+    oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
+
+    if(pic_s == row_bytes) {
+        oapv_mcpy(pic, core->stage, (size_t)need);
+    }
+    else {
+        u8       *d = (u8 *)pic;
+        const u8 *s = core->stage;
+        for(int r = 0; r < h_c; r++) {
+            oapv_mcpy(d, s, (size_t)row_bytes);
+            d += pic_s;
+            s += row_bytes;
+        }
+    }
+    return OAPV_OK;
+}
+
 static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
 {
     int          ret, midx, x, y, c;
@@ -1967,7 +2031,12 @@ static int dec_tile(oapvd_core_t *core, oapvd_tile_t *tile)
             pic_s = dst_s[c];
         }
 
-        ret = dec_tile_comp(tile, ctx, core, &bsc, c, pic_s, pic, tile->dst != NULL);
+        if(ctx->cdesc.stage_tile_output && tile->dst != NULL && OAPV_CS_GET_FORMAT(ctx->cs) != OAPV_CF_PLANAR2) {
+            ret = dec_tile_comp_staged(tile, ctx, core, &bsc, c, pic_s, pic);
+        }
+        else {
+            ret = dec_tile_comp(tile, ctx, core, &bsc, c, pic_s, pic, tile->dst != NULL);
+        }
         oapv_assert_rv(OAPV_SUCCEEDED(ret), ret);
 
         // move bs buffer to next 'tile_data()' component

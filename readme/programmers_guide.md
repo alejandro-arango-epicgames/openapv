@@ -509,6 +509,17 @@ There is no `oapvd_stat_t` argument. The frame's own information is already
 available from `oapvd_info_frame()` and `oapvd_info_tile()` on the same PBU,
 which an application has called to plan the selection.
 
+Tiles are written a block at a time, eight samples per store with a row
+stride jump between block rows. That completes only a quarter of a cache
+line per store, which is free on ordinary memory and expensive on
+write-combined memory such as a mapped GPU upload heap, where each store
+becomes a partial-line bus transaction. An application whose destinations
+are that kind of memory can set `oapvd_cdesc_t.stage_tile_output`, and each
+tile component is then decoded into a packed staging buffer and copied out
+in one block instead. The output is the same either way, so it is purely a
+performance choice, and it is off by default because the copy is not free —
+it pays only where memory bandwidth is the constraint. Measure both ways.
+
 ### Zero-copy decoding input with memory-mapped files
 
 The decoder never writes to the bitstream buffer: `oapv_bitb_t.addr` is
