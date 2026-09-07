@@ -1054,6 +1054,27 @@ struct oapvd_cdesc {
     int threads;
     // custom memory allocator interface, or NULL for standard C library
     const oapv_ops_mem_t *ops_mem;
+
+    /* Stage each tile component in a packed per-worker buffer and copy it out in
+     * one block, instead of writing 8x8 blocks straight into the caller's tile
+     * destination. Only affects oapvd_decode_tiles().
+     *
+     * 0 (default, and what a memzeroed descriptor gets) writes direct, which is
+     * correct and fastest for an ordinary system-memory destination.
+     *
+     * Set to 1 when the destination is write-combined memory, e.g. a mapped GPU
+     * upload heap. There the direct writes are a quarter of a cache line per row
+     * with a stride jump between block rows, so a line is only completed by four
+     * horizontally adjacent blocks and each write forces a partial-line flush.
+     * Staging turns that into sequential full-line writes. Measured 2.2-3.0x
+     * faster tile decode on a host whose memory bandwidth was the constraint,
+     * and neutral on one with bandwidth to spare - so it is a caller decision
+     * about the destination, not something the decoder can infer.
+     *
+     * Output is bit-identical either way. Falls back to writing direct if the
+     * staging buffer cannot be allocated, or for PLANAR2 output where two
+     * components share a plane and copying one out would clobber the other. */
+    int stage_tile_output;
 };
 
 // result of oapvd_decode() or oapvd_decode_frame()

@@ -392,6 +392,13 @@ struct oapvd_core {
     int          dq_shift[N_C];
     int          tile_idx;
 
+    /* Staging for one tile component, used when the caller gave a tile destination.
+       See dec_tile_comp_staged(). Grows to the largest component of the largest tile
+       the decoder meets and is reused for the decoder's lifetime. */
+    u8          *stage;
+    int          stage_size;
+    int          stage_failed; /* allocation failed once; stop retrying and write direct */
+
     oapvd_ctx_t *ctx;
     /* platform specific data, if needed */
     void        *pf;
