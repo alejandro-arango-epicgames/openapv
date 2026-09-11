@@ -920,6 +920,34 @@ struct oapv_tile_req {
    index appearing twice is rejected rather than decoded twice. */
 OAPV_EXPORT int oapvd_decode_tiles(oapvd_t did, oapv_bitb_t *bitb, int num_tiles, oapv_tile_req_t *tile_reqs);
 
+/* the tiles wanted from one frame, as oapvd_decode_tiles() takes them */
+typedef struct oapv_frame_req oapv_frame_req_t;
+struct oapv_frame_req {
+    oapv_bitb_t     *bitb;      /* one frame PBU */
+    int              num_tiles;
+    oapv_tile_req_t *tile_reqs; /* ascending idx, as for oapvd_decode_tiles() */
+};
+
+/* Decode tiles of several frames in one request.
+ *
+ * oapvd_decode_tiles() fills the decoder's threads and drains them again per
+ * call, so asking for four frames pays four ragged tails, and a frame with
+ * fewer tiles than there are threads cannot fill them at all. Given all the
+ * frames at once the tiles are decoded as one pool of work, and the tail is
+ * paid once.
+ *
+ * The requests are grouped by frame rather than carrying a frame with each
+ * tile, so the batching is structural: a caller cannot interleave frames and
+ * quietly lose it.
+ *
+ * Every frame of a request must agree on color space, chroma format, bit depth
+ * and component count - the decoder holds those once for the request, so a
+ * batch that disagreed about them would decode some of its frames through
+ * another frame's layout. Resolution and tile grid are free to differ, which is
+ * what a mip pyramid needs. Otherwise this behaves as oapvd_decode_tiles() does
+ * for each frame, and oapvd_decode_tiles() is this call with one frame. */
+OAPV_EXPORT int oapvd_decode_tiles_multi(oapvd_t did, int num_frms, oapv_frame_req_t *frame_reqs);
+
 
 /*****************************************************************************
  * logging
