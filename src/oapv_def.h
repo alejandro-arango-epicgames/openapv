@@ -357,6 +357,8 @@ struct oapve_ctx {
 #define DEC_TILE_STAT_IS_DONE(stat)   ((stat) & DEC_TILE_STAT_FLAG_DONE)
 
 
+typedef struct oapvd_frm  oapvd_frm_t;
+
 typedef struct oapvd_tile oapvd_tile_t;
 struct oapvd_tile {
     oapv_th_t    th;
@@ -374,6 +376,31 @@ struct oapvd_tile {
     /* destination of this tile, or NULL when the tile is decoded into the
        full-frame image buffer of the context */
     const oapv_imgb_tile_t *dst;
+
+    /* the frame this tile belongs to. tiles of several frames are decoded
+       through one thread pool, so the one per-frame value a tile decode needs -
+       the quantization matrix - is reached from the tile rather than taken from
+       a context singleton that the next frame of the batch would overwrite. */
+    const oapvd_frm_t      *frm;
+};
+
+/* one frame of a decode: its header, its bitstream and its tile grid. A
+   selective decode can be handed several frames at once, so what describes a
+   single frame lives here, and the context keeps only what every frame of such
+   a batch shares (color space, bit depth, component count). */
+struct oapvd_frm {
+    oapv_fh_t        fh;
+    oapv_bs_t        bs;
+    oapvd_tile_t    *tile;          // tile array, allocated on demand
+    int              tile_cap;      // number of allocated tile entries
+    oapv_tile_pos_t *pos_tiles;     // per-tile sizes of the frame header, allocated on demand
+    int              pos_tiles_cap; // number of allocated pos_tiles entries
+    u8              *tile_end;
+    int              num_tiles;
+    int              num_tile_cols;
+    int              num_tile_rows;
+    int              w;
+    int              h;
 };
 
 typedef struct oapvd_core oapvd_core_t;
@@ -410,21 +437,25 @@ struct oapvd_ctx {
     oapvd_cdesc_t           cdesc;
     oapv_ops_mem_t          ops_mem; // effective memory allocator
     oapvd_core_t           *core[OAPV_MAX_THREADS];
-    oapv_bs_t               bs;
     oapv_imgb_t            *imgb;
-    oapv_fh_t               fh;
-    oapvd_tile_t           *tile;     // tile array, allocated on demand
-    int                     tile_cap; // number of allocated tile entries
+
+    oapvd_frm_t            *frm;     // frame containers, allocated on demand
+    int                     frm_cap; // number of allocated frame containers
+
+    /* the tiles a selective decode asked for, across every frame it was given,
+       and the cursor the workers share over them. A flat list means the pool
+       drains once for the whole request and a worker takes its next tile
+       without walking the frames' tile arrays looking for one that was
+       selected. */
+    oapvd_tile_t          **work;
+    int                     work_cap;
+    int                     work_cnt;
+    int                     work_idx;
+
     oapv_tpool_t           *tpool;
     oapv_thread_t           thread_id[OAPV_MAX_THREADS];
     oapv_sync_obj_t         sync_obj;
-    u8                     *tile_end;
-    int                     num_tiles;
     int                     tile_idx;
-    int                     num_tile_cols;
-    int                     num_tile_rows;
-    int                     w;
-    int                     h;
     int                     threads;
     int                     cs;            // color space of the output
     int                     cfi;           // chroma format indicator
@@ -439,9 +470,6 @@ struct oapvd_ctx {
     const oapv_fn_dquant_t *fn_dquant;
 
     oapv_fn_blk_to_pic_t   fn_blk_to_pic[N_C];
-
-    oapv_tile_pos_t        *pos_tiles;     // per-tile sizes of the frame header, allocated on demand
-    int                     pos_tiles_cap; // number of allocated pos_tiles entries
 
     /* platform specific data, if needed */
     void                   *pf;
