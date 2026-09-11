@@ -492,3 +492,30 @@ set_tests_properties(decode_p210 PROPERTIES
     FAIL_REGULAR_EXPRESSION "Decoded frame count               = 0"
     PASS_REGULAR_EXPRESSION "Decoded frame count               = 3"
 )
+
+# Test - selective tile decoding, per frame and batched across frames, against
+# whole-picture decoding. The first three bitstreams differ in resolution, tile
+# grid and quantization matrix (tile_E carries its tile sizes in the frame
+# header); qp_F is 12-bit, for the check that a mixed-layout batch is refused.
+if(${ENABLE_TESTS} AND OAPV_BUILD_STATIC_LIB)
+    add_executable(oapv_test_decode_tiles test/oapv_test_decode_tiles.c)
+    target_include_directories(oapv_test_decode_tiles PRIVATE ${PROJECT_SOURCE_DIR}/inc ${CMAKE_BINARY_DIR}/include)
+    target_link_libraries(oapv_test_decode_tiles oapv)
+    if(MSVC)
+        target_compile_definitions(oapv_test_decode_tiles PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+    set_target_properties(oapv_test_decode_tiles PROPERTIES
+        FOLDER "test"
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+    add_test(NAME decode_tiles_multi COMMAND ${CMAKE_CURRENT_BINARY_DIR}/bin/oapv_test_decode_tiles
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/bitstream/qp_A.apv
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/bitstream/syn_A.apv
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/bitstream/tile_E.apv
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/bitstream/qp_F.apv)
+    set_tests_properties(decode_tiles_multi PROPERTIES
+        TIMEOUT 20
+        FAIL_REGULAR_EXPRESSION "FAIL"
+        PASS_REGULAR_EXPRESSION "PASSED: 0 failure"
+    )
+endif()
