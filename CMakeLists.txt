@@ -203,7 +203,9 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(STATUS "Linux system")
     # Read the /etc/os-release file to determine the distribution
-    file(READ "/etc/os-release" OS_RELEASE_CONTENT)
+    if(EXISTS "/etc/os-release")
+        file(READ "/etc/os-release" OS_RELEASE_CONTENT)
+    endif()
 
     if(OS_RELEASE_CONTENT MATCHES "ID=debian" OR OS_RELEASE_CONTENT MATCHES "ID=ubuntu")
         message(STATUS "Debian-based system detected")
