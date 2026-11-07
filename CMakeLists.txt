@@ -486,6 +486,16 @@ set_tests_properties(decode_tile_E PROPERTIES
     PASS_REGULAR_EXPRESSION ".*hash:match.*"
 )
 
+# Test - decode a frame coded under the conforming 422-10 profile with a tile
+# grid wider than OAPV_MAX_TILE_COLS (21x1), as in TMV media at profile 33:
+# the decoder accepts it although the encoder would not write it
+add_test(NAME decode_p33_wide_grid COMMAND ${CMAKE_CURRENT_BINARY_DIR}/bin/oapv_app_dec -i ${CMAKE_CURRENT_SOURCE_DIR}/test/bitstream/tmv_p33_wide_grid.apv -v 3 --hash)
+set_tests_properties(decode_p33_wide_grid PROPERTIES
+    TIMEOUT 20
+    FAIL_REGULAR_EXPRESSION "Decoded frame count               = 0"
+    PASS_REGULAR_EXPRESSION ".*hash:match.*"
+)
+
 # Test - decode qp_A.apv into P210
 # the frame hash cannot be checked here, the picture is not in the coded format
 add_test(NAME decode_p210 COMMAND ${CMAKE_CURRENT_BINARY_DIR}/bin/oapv_app_dec -i ${CMAKE_CURRENT_SOURCE_DIR}/test/bitstream/qp_A.apv -v 3 --output-csp 1)

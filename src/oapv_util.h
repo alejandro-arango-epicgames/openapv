@@ -75,18 +75,19 @@
 #define oapv_align_value(val, align) ((((val) + (align) - 1) / (align)) * (align))
 
 // validate tile topology and compute number of tiles (overflow-safe).
-// UNCONST profiles have no limit on the number of tile columns and rows.
+// only the decoder calls this, and it does not apply the OAPV_MAX_TILE_COLS x
+// OAPV_MAX_TILE_ROWS limit of the conforming profiles, so that bitstreams coded
+// with a larger tile grid under one of those profiles stay decodable (TMV media
+// at profile 33 with grids above 20x20). the encoder still applies the limit.
 // returns OAPV_OK and sets *num_tiles on success, error otherwise.
 static force_inline int oapv_validate_tile_topology(int profile_idc, int tile_cols, int tile_rows, int *num_tiles)
 {
-    int unconst = OAPV_PROFILE_IS_UNCONST(profile_idc);
-    if(tile_cols < 1 || (!unconst && tile_cols > OAPV_MAX_TILE_COLS))
+    (void)profile_idc;
+    if(tile_cols < 1 || tile_rows < 1)
         return OAPV_ERR_MALFORMED_BITSTREAM;
-    if(tile_rows < 1 || (!unconst && tile_rows > OAPV_MAX_TILE_ROWS))
-        return OAPV_ERR_MALFORMED_BITSTREAM;
-    // cols and rows can be up to 2^20 each for UNCONST profiles
+    // cols and rows can be up to 2^20 each
     s64 n = (s64)tile_cols * tile_rows;
-    if(n > (unconst ? (s64)INT_MAX : (s64)OAPV_MAX_TILES))
+    if(n > (s64)INT_MAX)
         return OAPV_ERR_MALFORMED_BITSTREAM;
     if(num_tiles)
         *num_tiles = (int)n;
